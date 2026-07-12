@@ -169,3 +169,43 @@ case WM_CLOSE: {
 By intercepting the message and returning `0`, we effectively nullify the user's attempt to close the window. The only way the window can be destroyed now is if our application code explicitly calls `DestroyWindow(hwnd)`.
 
 For debugging purposes, we included a backdoor in the `WM_KEYDOWN` handler. By checking `wParam == 'Q'` and utilizing `GetKeyState` for the Control and Shift modifiers, we allow developers to forcibly destroy the window using Ctrl+Shift+Q.
+
+## Module 5: GDI Rendering and the State Machine
+
+To guide the user through the eye exercises, we divide our overlay window into a split-screen design and dynamically update the instructions using a 5-step state machine. We draw the interface using the Windows Graphics Device Interface (GDI).
+
+### 1. The Graphics Device Interface (GDI)
+
+GDI is the core, legacy graphics rendering system in Windows. It provides functions to draw lines, curves, closed figures, and text onto a display or printer.
+
+To draw anything in Win32, you must obtain a **Device Context (HDC)**. A device context is an abstraction layer that links your C++ code to the physical drawing surface (in this case, the overlay window).
+
+### 2. The `WM_PAINT` Lifecycle
+
+Windows applications do not constantly redraw themselves in a while-loop like video games do. Instead, the OS sends a `WM_PAINT` message whenever a portion of the window becomes "invalid" (e.g., when the window is first created, resized, or brought to the foreground).
+
+Inside `WM_PAINT`, you must follow a strict ritual:
+
+1. **`BeginPaint`**: This function prepares the window for painting. It gives you the `HDC` and a `PAINTSTRUCT` containing information about which specific area of the window needs to be redrawn (the `rcPaint` rectangle).
+2. **Drawing Calls**: We use `FillRect` with our custom `HBRUSH` objects to color the screen, and `DrawText` to render our current instruction based on `g_exerciseStep`.
+3. **`EndPaint`**: This is critical. It releases the device context and tells Windows that the invalid area has been resolved. Failing to call `EndPaint` will cause the OS to continuously spam `WM_PAINT` messages, freezing your application.
+
+### 3. Memory Management and `DeleteObject`
+
+A common source of memory leaks in Win32 applications is mishandling GDI objects (like brushes, pens, and fonts). 
+
+When we call `CreateSolidBrush()`, Windows allocates memory in the kernel space for that brush. When we are finished painting with it, we *must* call `DeleteObject()` to free that memory.
+
+```cpp
+HBRUSH hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
+FillRect(hdc, &rcLeft, hBrushBlack);
+DeleteObject(hBrushBlack); // CRITICAL: Free the GDI object
+```
+
+### 4. The Exercise State Machine
+
+We initialized a secondary timer (`ID_EXERCISE_TIMER`) running at 60-second intervals. Every time it ticks, `g_exerciseStep` advances.
+
+If the step is 5 or below, we call `InvalidateRect(hwnd, NULL, TRUE)`. This function is how you manually force a window to redraw. It marks the entire window client area as invalid, prompting the OS to send a fresh `WM_PAINT` message. During the resulting `WM_PAINT`, the `switch` statement reads the newly advanced `g_exerciseStep` and draws the updated instruction.
+
+Once the exercise sequence hits step 6, the timer's logic branches, automatically calling `DestroyWindow` to tear down the lockdown overlay and return the user to their work.

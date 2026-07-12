@@ -21,6 +21,7 @@
 
 // Timer IDs
 #define ID_WORK_TIMER 3001
+#define ID_EXERCISE_TIMER 3002
 
 // Global variables
 NOTIFYICONDATA nid = {};
@@ -29,6 +30,7 @@ int g_workIntervalMinutes = 20;
 HWND g_hSettingsWindow = NULL;
 HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
+int g_exerciseStep = 1;
 
 // Window Procedure forward declaration
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -179,6 +181,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (wParam == ID_WORK_TIMER) {
                 // Spawn the lockdown overlay instead of a message box
                 if (g_hOverlayWindow == NULL) {
+                    g_exerciseStep = 1;
                     g_hOverlayWindow = CreateWindowEx(
                         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                         L"BlinkDaemonOverlayClass",
@@ -276,20 +279,62 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 
 LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+        case WM_CREATE: {
+            // Start the exercise sequence timer (60 seconds per step)
+            SetTimer(hwnd, ID_EXERCISE_TIMER, 60 * 1000, NULL);
+            return 0;
+        }
+        case WM_TIMER: {
+            if (wParam == ID_EXERCISE_TIMER) {
+                g_exerciseStep++;
+                if (g_exerciseStep > 5) {
+                    DestroyWindow(hwnd); // Exercise complete
+                } else {
+                    InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
+                }
+            }
+            return 0;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
-            // Fill background with dark grey
-            HBRUSH hBrush = CreateSolidBrush(RGB(20, 20, 20));
-            FillRect(hdc, &ps.rcPaint, hBrush);
-            DeleteObject(hBrush);
+            RECT rcClient;
+            GetClientRect(hwnd, &rcClient);
             
-            // Draw instruction text
+            // Calculate 75% width for the split screen
+            int splitX = (rcClient.right - rcClient.left) * 3 / 4;
+            
+            RECT rcLeft = rcClient;
+            rcLeft.right = splitX;
+            
+            RECT rcRight = rcClient;
+            rcRight.left = splitX;
+            
+            // Fill Left Side (75%) with Black
+            HBRUSH hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
+            FillRect(hdc, &rcLeft, hBrushBlack);
+            DeleteObject(hBrushBlack);
+            
+            // Fill Right Side (25%) with Dark Gray
+            HBRUSH hBrushGray = CreateSolidBrush(RGB(40, 40, 40));
+            FillRect(hdc, &rcRight, hBrushGray);
+            DeleteObject(hBrushGray);
+            
+            // Draw instruction text centered in the black pane
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(255, 255, 255));
-            const wchar_t* text = L"Time to take a 20-second break! (Press Ctrl+Shift+Q to exit)";
-            TextOut(hdc, 50, 50, text, wcslen(text));
+            
+            const wchar_t* instruction = L"";
+            switch (g_exerciseStep) {
+                case 1: instruction = L"Step 1/5: Focus on a distant object for 60 seconds."; break;
+                case 2: instruction = L"Step 2/5: Slowly blink your eyes 10 times."; break;
+                case 3: instruction = L"Step 3/5: Roll your eyes in a circle, clockwise."; break;
+                case 4: instruction = L"Step 4/5: Roll your eyes in a circle, counter-clockwise."; break;
+                case 5: instruction = L"Step 5/5: Close your eyes tightly for 60 seconds."; break;
+            }
+            
+            DrawText(hdc, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             
             EndPaint(hwnd, &ps);
             return 0;
@@ -307,6 +352,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             return 0;
         }
         case WM_DESTROY: {
+            KillTimer(hwnd, ID_EXERCISE_TIMER);
             g_hOverlayWindow = NULL;
             return 0;
         }
