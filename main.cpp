@@ -19,15 +19,21 @@
 #define ID_SETTINGS_INTERVAL_TXT 2002
 #define ID_SETTINGS_SAVE_BTN 2003
 
+// Timer IDs
+#define ID_WORK_TIMER 3001
+
 // Global variables
 NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
 int g_workIntervalMinutes = 20;
 HWND g_hSettingsWindow = NULL;
+HWND g_hMainWindow = NULL;
+HWND g_hOverlayWindow = NULL;
 
 // Window Procedure forward declaration
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -55,6 +61,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         return 0;
     }
 
+    // Register Overlay Window Class
+    WNDCLASS overlayWc = {};
+    overlayWc.lpfnWndProc = OverlayWindowProc;
+    overlayWc.hInstance = hInstance;
+    overlayWc.lpszClassName = L"BlinkDaemonOverlayClass";
+    overlayWc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    if (!RegisterClass(&overlayWc)) {
+        return 0;
+    }
+
     // 2. Create a Message-Only Window
     // HWND_MESSAGE as parent makes it a message-only window, entirely invisible to the user
     // and hidden from broadcasts.
@@ -73,6 +89,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     if (hwnd == NULL) {
         return 0;
     }
+    
+    g_hMainWindow = hwnd;
 
     // 3. Initialize and Add the System Tray Icon
     nid.cbSize = sizeof(NOTIFYICONDATA);
@@ -86,6 +104,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     // Add the icon to the system tray
     Shell_NotifyIcon(NIM_ADD, &nid);
+
+    // 3.5. Start the background timer if enabled
+    if (g_isDaemonEnabled) {
+        SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
+    }
 
     // 4. Run the Message Loop
     MSG msg = {};
@@ -149,6 +172,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Remove the system tray icon before closing the application
             Shell_NotifyIcon(NIM_DELETE, &nid);
             DestroyWindow(hwnd);
+            return 0;
+        }
+
+        case WM_TIMER: {
+            if (wParam == ID_WORK_TIMER) {
+                // Spawn the lockdown overlay instead of a message box
+                if (g_hOverlayWindow == NULL) {
+                    g_hOverlayWindow = CreateWindowEx(
+                        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                        L"BlinkDaemonOverlayClass",
+                        L"Blink Daemon Break",
+                        WS_POPUP | WS_VISIBLE,
+                        0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
+                        NULL, NULL, GetModuleHandle(NULL), NULL
+                    );
+                }
+            }
             return 0;
         }
 
@@ -216,12 +256,58 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 g_workIntervalMinutes = _wtoi(buffer);
                 if (g_workIntervalMinutes <= 0) g_workIntervalMinutes = 1; // Basic validation
 
+                // Apply Timer Settings
+                KillTimer(g_hMainWindow, ID_WORK_TIMER);
+                if (g_isDaemonEnabled) {
+                    SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
+                }
+
                 DestroyWindow(hwnd);
             }
             return 0;
         }
         case WM_DESTROY: {
             g_hSettingsWindow = NULL; // Clear handle when window is destroyed
+            return 0;
+        }
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
+LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            
+            // Fill background with dark grey
+            HBRUSH hBrush = CreateSolidBrush(RGB(20, 20, 20));
+            FillRect(hdc, &ps.rcPaint, hBrush);
+            DeleteObject(hBrush);
+            
+            // Draw instruction text
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
+            const wchar_t* text = L"Time to take a 20-second break! (Press Ctrl+Shift+Q to exit)";
+            TextOut(hdc, 50, 50, text, wcslen(text));
+            
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_KEYDOWN: {
+            // Secret override to destroy the window during testing (Ctrl+Shift+Q)
+            if (wParam == 'Q' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        }
+        case WM_CLOSE: {
+            // Intercept WM_CLOSE to block Alt+F4 closures
+            // Returning 0 indicates we have handled the message and the window should not be closed.
+            return 0;
+        }
+        case WM_DESTROY: {
+            g_hOverlayWindow = NULL;
             return 0;
         }
     }

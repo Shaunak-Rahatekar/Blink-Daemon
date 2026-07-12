@@ -85,3 +85,87 @@ In our settings window procedure (`SettingsWindowProc`), we intercept the `WM_CO
 - **`lParam`**: Contains the window handle (`HWND`) of the control itself.
 
 When the save button is clicked, our switch statement in `WM_COMMAND` catches `ID_SETTINGS_SAVE_BTN`. We then use `SendMessage` to query the checkbox's state (`BM_GETCHECK`) and `GetWindowText` to read the interval text box, updating our global state variables before dismissing the dialog with `DestroyWindow`.
+
+## Module 3: The Background Timer Logic
+
+To enforce the 20-20-20 rule, Blink Daemon must be able to wake up periodically and interrupt the user. In the Win32 API, the standard mechanism for this is the `SetTimer` function.
+
+### 1. The `SetTimer` Function
+
+```cpp
+#define ID_WORK_TIMER 3001
+SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
+```
+
+The `SetTimer` function tells the OS to generate an event for a specific window at a specified interval.
+- **Window Handle (`hwnd`)**: We pass `g_hMainWindow` (our message-only window) so that the timer events are routed to our `WindowProc`.
+- **Timer ID (`nIDEvent`)**: An arbitrary integer used to identify the timer. If an application uses multiple timers, the ID lets you distinguish between them. It is also used when calling `KillTimer(hwnd, ID_WORK_TIMER)` to pause or reset the countdown.
+- **Elapse Time (`uElapse`)**: The timer interval in milliseconds. We multiply the user's minute setting by 60,000.
+- **TimerProc (`lpTimerFunc`)**: Instead of supplying a callback function, we pass `NULL`, which tells the OS to post a `WM_TIMER` message to the associated window queue instead.
+
+### 2. Handling `WM_TIMER`
+
+When the interval elapses, a `WM_TIMER` message is dispatched to our `WindowProc`. We intercept it like this:
+
+```cpp
+case WM_TIMER: {
+    if (wParam == ID_WORK_TIMER) {
+        MessageBox(NULL, L"Time to take a 20-second break! Look at something 20 feet away.", 
+                   L"Blink Daemon - 20-20-20 Rule", 
+                   MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND);
+    }
+    return 0;
+}
+```
+
+The `wParam` parameter holds the Timer ID, allowing us to verify that this is indeed our `ID_WORK_TIMER` firing before displaying the MessageBox alert.
+
+### 3. `WM_TIMER` is a Low-Priority Message
+
+It is important to understand a quirk of Windows timers: **They are not real-time accurate.**
+
+In the Windows Message Queue, `WM_TIMER` is considered a low-priority message. `GetMessage` will only retrieve a `WM_TIMER` message if there are **no other messages** in the thread's queue. If the application is busy processing mouse movements or keyboard input, the timer message will be delayed. Furthermore, if a timer expires multiple times while the application is busy, the OS consolidates them into a single `WM_TIMER` message to prevent flooding the queue.
+
+For an application like Blink Daemon, this slight inaccuracy is perfectly acceptable. However, for a high-performance game or audio processing engine, Win32 timers (`SetTimer`) are entirely insufficient, and developers must use higher-resolution multimedia timers instead.
+
+## Module 4: The Lockdown Overlay
+
+A simple message box isn't enough to force a user to take a break. In this module, we replace it with a fullscreen, borderless overlay that seizes control of the screen, locks out immediate bypass attempts (like Alt+F4), and requires the user to wait out the 20 seconds. 
+
+### 1. Window Styles vs. Extended Styles
+
+When calling `CreateWindowEx`, you configure the window's visual and behavioral traits using bitwise flags. There are two primary categories of flags:
+
+- **Window Styles (`dwStyle`)**: Defines fundamental architectural properties of the window. 
+  - We use `WS_POPUP` instead of `WS_OVERLAPPEDWINDOW`. A popup window has no title bar, no system menu, and no borders—perfect for a fullscreen canvas.
+  - `WS_VISIBLE` ensures the window is painted immediately upon creation without needing a separate `ShowWindow` call.
+- **Extended Window Styles (`dwExStyle`)**: Defines deeper, OS-level integration behaviors.
+  - `WS_EX_TOOLWINDOW`: This flag prevents the window from showing up in the Alt+Tab menu or creating a separate button on the Taskbar. It acts as an auxiliary surface, maintaining the daemon's stealthy profile.
+
+### 2. Windows Z-Order and the Topmost Flag
+
+The "Z-Order" is the three-dimensional stack of windows on the desktop (X and Y being the screen coordinates, Z being depth). By default, the window with current focus is brought to the top of the standard Z-order stack.
+
+However, we need our break overlay to display above *everything*—even if the user clicks a different application on a second monitor. 
+
+We achieve this with the `WS_EX_TOPMOST` extended style. This places our window in a completely separate, superior Z-order band reserved for "Topmost" windows. A topmost window will always render above non-topmost windows, regardless of which window holds the keyboard focus.
+
+### 3. Intercepting `WM_CLOSE` to Block Alt+F4
+
+When a user attempts to close a window (by clicking the 'X', right-clicking the taskbar, or pressing Alt+F4), the OS posts a `WM_CLOSE` message to the window's queue.
+
+If your Window Procedure passes `WM_CLOSE` down to `DefWindowProc` (the default behavior), the OS automatically calls `DestroyWindow` and tears down the UI.
+
+To create a "lockdown" effect, we intercept the `WM_CLOSE` message inside `OverlayWindowProc`.
+
+```cpp
+case WM_CLOSE: {
+    // Returning 0 indicates we have processed the message manually.
+    // The default destruction sequence is aborted.
+    return 0; 
+}
+```
+
+By intercepting the message and returning `0`, we effectively nullify the user's attempt to close the window. The only way the window can be destroyed now is if our application code explicitly calls `DestroyWindow(hwnd)`.
+
+For debugging purposes, we included a backdoor in the `WM_KEYDOWN` handler. By checking `wParam == 'Q'` and utilizing `GetKeyState` for the Control and Shift modifiers, we allow developers to forcibly destroy the window using Ctrl+Shift+Q.
