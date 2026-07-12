@@ -42,3 +42,46 @@ We defined our callback message as `WM_USER_TRAY_ICON` (`WM_USER + 1`). `WM_USER
 When the user right-clicks our icon, `explorer.exe` intercepts the click and posts `WM_USER_TRAY_ICON` to our message-only window. Inside `WindowProc`, we check the `lParam` (which `explorer.exe` populates with the mouse event, like `WM_RBUTTONUP`), generate our context menu using `CreatePopupMenu`, and use `TrackPopupMenu` to block and wait for a selection.
 
 > **Crucial Quirk (The Foreground Window Hack):** Notice the call to `SetForegroundWindow(hwnd)` right before `TrackPopupMenu`. If you don't do this, a known bug/feature in Windows causes the popup menu to remain stuck on the screen forever, even if the user clicks away. By briefly setting our hidden window as the foreground focus, the OS knows to accurately dismiss the menu when focus is lost.
+
+## Module 2: The Settings Dialog & Win32 UI Elements
+
+Now that we have our invisible message-only window and system tray icon, we need a way for the user to configure the daemon. We will programmatically create a standard window to act as our settings dialog. 
+
+### 1. Creating Controls (Child Windows)
+
+In Win32, UI elements like buttons, checkboxes, and text boxes are actually just **windows** themselves! They are predefined window classes provided by the OS (such as `BUTTON`, `STATIC`, and `EDIT`). 
+
+To create these elements, we use the same `CreateWindow` or `CreateWindowEx` function that we use for a main window, but we provide specific styles:
+
+- `WS_CHILD`: Indicates this window is a child element and must be contained within a parent window.
+- `WS_VISIBLE`: Ensures the control is visible as soon as it's created.
+- **Specific Control Styles**: 
+  - `BS_AUTOCHECKBOX`: A button style that creates a checkbox which toggles its state automatically when clicked.
+  - `BS_DEFPUSHBUTTON`: Creates a standard push button with a heavy border, indicating it's the default action.
+  - `ES_NUMBER`: An edit control style that only accepts numerical input.
+
+When creating these child windows, the `hWndParent` parameter is set to our settings window handle.
+
+### 2. Control IDs and `HMENU`
+
+How do we identify which button was clicked or which text box to read from? When calling `CreateWindow` for a child window, the `hMenu` parameter is cleverly repurposed. Instead of a menu handle, we pass a unique integer identifier—the **Control ID**.
+
+```cpp
+#define ID_SETTINGS_SAVE_BTN 2003
+// ...
+CreateWindow(L"BUTTON", L"Save", WS_VISIBLE | WS_CHILD, x, y, w, h, hwnd, (HMENU)ID_SETTINGS_SAVE_BTN, hInstance, NULL);
+```
+
+We can later use this ID to interact with the control, such as retrieving it with `GetDlgItem(hwnd, ControlID)`.
+
+### 3. Routing `WM_COMMAND` Messages
+
+When a user interacts with a UI control (e.g., clicking a button or typing in a text box), the control generates an event. Because the control is a child window, it doesn't process this event entirely by itself; it notifies its parent window by sending a `WM_COMMAND` message.
+
+In our settings window procedure (`SettingsWindowProc`), we intercept the `WM_COMMAND` message to handle user actions:
+
+- **`LOWORD(wParam)`**: Contains the Control ID of the element that fired the event (e.g., `ID_SETTINGS_SAVE_BTN`).
+- **`HIWORD(wParam)`**: Contains the specific notification code (e.g., `BN_CLICKED` for a button click, or `EN_CHANGE` for text edits).
+- **`lParam`**: Contains the window handle (`HWND`) of the control itself.
+
+When the save button is clicked, our switch statement in `WM_COMMAND` catches `ID_SETTINGS_SAVE_BTN`. We then use `SendMessage` to query the checkbox's state (`BM_GETCHECK`) and `GetWindowText` to read the interval text box, updating our global state variables before dismissing the dialog with `DestroyWindow`.
