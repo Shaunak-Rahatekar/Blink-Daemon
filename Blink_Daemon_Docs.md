@@ -209,3 +209,41 @@ We initialized a secondary timer (`ID_EXERCISE_TIMER`) running at 60-second inte
 If the step is 5 or below, we call `InvalidateRect(hwnd, NULL, TRUE)`. This function is how you manually force a window to redraw. It marks the entire window client area as invalid, prompting the OS to send a fresh `WM_PAINT` message. During the resulting `WM_PAINT`, the `switch` statement reads the newly advanced `g_exerciseStep` and draws the updated instruction.
 
 Once the exercise sequence hits step 6, the timer's logic branches, automatically calling `DestroyWindow` to tear down the lockdown overlay and return the user to their work.
+
+## Module 6: Compilation, Linking, and Testing
+
+Now that the source code is complete, we must transform our human-readable C++ file into a machine-executable binary. 
+
+### 1. The C++ Build Pipeline
+
+Building a C++ application is not a single action; it is a three-stage pipeline:
+
+1.  **Preprocessing**: The preprocessor scans your `.cpp` file for directives like `#include <windows.h>`. It literally copies and pastes the contents of those header files into your source file, creating a massive "Translation Unit."
+2.  **Compiling**: The compiler translates the C++ syntax into raw, CPU-specific Assembly/Machine Code, generating an Object File (`.obj` in MSVC, `.o` in GCC). At this stage, your code is compiled, but it doesn't know where the actual Windows API functions live.
+3.  **Linking**: The Linker takes your Object Files and connects them to the operating system's libraries. If you call `CreateWindowEx`, the linker finds the exact memory address or export stub for that function and weaves it into your final `.exe`.
+
+### 2. Windows Import Libraries (`.lib` and `.a`)
+
+The Win32 API functions (like `CreateWindowEx` or `Shell_NotifyIcon`) live inside dynamic link libraries (DLLs) scattered across the `C:\Windows\System32` folder (e.g., `User32.dll`, `Gdi32.dll`, `Shell32.dll`).
+
+To tell the linker *how* to find these functions at runtime, we must link against **Import Libraries**. 
+- In MSVC, these are `.lib` files (e.g., `User32.lib`).
+- In MinGW/GCC, these are `.a` files (e.g., `libuser32.a`).
+
+An import library doesn't contain the actual function code; it contains stubs that tell the executable, "When you run, look inside `User32.dll` for this function."
+
+### 3. The `-mwindows` / `/SUBSYSTEM:WINDOWS` Flag
+
+By default, C++ compilers assume you are building a Console Application. They will generate an `.exe` that expects a standard `main()` entry point and will automatically allocate a black console window (conhost.exe) when run.
+
+Since Blink Daemon uses `wWinMain` and provides its own graphical interface (or invisible message window), we must explicitly tell the compiler we are building a GUI application.
+- In MinGW, we pass the `-mwindows` flag (and `-municode` for wide-character support).
+- In MSVC, we pass `/link /SUBSYSTEM:WINDOWS`.
+
+This prevents the black console window from flashing on the screen when the daemon starts.
+
+### 4. Debug vs. Release Builds
+
+When compiling, you generally choose between two configurations:
+- **Debug Build**: Disables optimizations (`-O0` or `/Od`) and embeds heavy debugging symbols (`.pdb` files in MSVC). This makes stepping through the code in a debugger easy, but the resulting executable is large and slow.
+- **Release Build**: Enables aggressive compiler optimizations (`-O2` or `/O2`). The compiler might inline functions, unroll loops, and strip out unnecessary metadata. The resulting executable is highly performant and tiny, suitable for deployment, but very difficult to reverse-engineer or step through in a debugger.

@@ -311,14 +311,20 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         }
         case WM_COMMAND: {
             if (LOWORD(wParam) == ID_OVERLAY_TERMINATE_BTN) {
-                // Show 3 annoying message boxes
-                int result1 = MessageBox(hwnd, L"Are you sure you want to skip your eye exercise? Your eyes need rest!", L"Warning 1/3", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+                // Show 5 annoying message boxes
+                int result1 = MessageBox(hwnd, L"Are you sure you want to skip your eye exercise? Your eyes need rest!", L"Warning 1/5", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
                 if (result1 == IDYES) {
-                    int result2 = MessageBox(hwnd, L"Skipping these breaks can lead to permanent digital eye strain. Are you ABSOLUTELY sure this is an emergency?", L"Warning 2/3", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+                    int result2 = MessageBox(hwnd, L"Skipping these breaks can lead to permanent digital eye strain. Are you ABSOLUTELY sure this is an emergency?", L"Warning 2/5", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
                     if (result2 == IDYES) {
-                        int result3 = MessageBox(hwnd, L"Final confirmation. If you click Yes, the exercise will be cancelled.", L"Warning 3/3", MB_YESNO | MB_ICONERROR | MB_TOPMOST);
+                        int result3 = MessageBox(hwnd, L"This is your third warning. Your long-term eye health is more important than a few minutes of work. Continue skipping?", L"Warning 3/5", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
                         if (result3 == IDYES) {
-                            DestroyWindow(hwnd);
+                            int result4 = MessageBox(hwnd, L"Please reconsider. The 20-20-20 rule is scientifically proven to prevent fatigue. Are you 100% sure you want to exit?", L"Warning 4/5", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+                            if (result4 == IDYES) {
+                                int result5 = MessageBox(hwnd, L"Final confirmation. If you click Yes, the exercise will be cancelled.", L"Warning 5/5", MB_YESNO | MB_ICONERROR | MB_TOPMOST);
+                                if (result5 == IDYES) {
+                                    DestroyWindow(hwnd);
+                                }
+                            }
                         }
                     }
                 }
