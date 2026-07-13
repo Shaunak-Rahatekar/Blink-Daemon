@@ -23,6 +23,9 @@
 #define ID_WORK_TIMER 3001
 #define ID_EXERCISE_TIMER 3002
 
+// Overlay Window Control IDs
+#define ID_OVERLAY_TERMINATE_BTN 4001
+
 // Global variables
 NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
@@ -107,6 +110,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     // Add the icon to the system tray
     Shell_NotifyIcon(NIM_ADD, &nid);
 
+    // Show the Settings Window on startup so the user knows the application is running
+    g_hSettingsWindow = CreateWindowEx(
+        WS_EX_CLIENTEDGE,
+        L"BlinkDaemonSettingsClass",
+        L"Blink Daemon Settings",
+        WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
+        NULL, NULL, hInstance, NULL
+    );
+    ShowWindow(g_hSettingsWindow, SW_SHOW);
+
     // 3.5. Start the background timer if enabled
     if (g_isDaemonEnabled) {
         SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
@@ -186,7 +200,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
                         L"BlinkDaemonOverlayClass",
                         L"Blink Daemon Break",
-                        WS_POPUP | WS_VISIBLE,
+                        WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN,
                         0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
                         NULL, NULL, GetModuleHandle(NULL), NULL
                     );
@@ -282,6 +296,33 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_CREATE: {
             // Start the exercise sequence timer (60 seconds per step)
             SetTimer(hwnd, ID_EXERCISE_TIMER, 60 * 1000, NULL);
+            
+            // Create Emergency Terminate button
+            int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+            int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+            int splitX = screenWidth * 3 / 4;
+            
+            CreateWindow(L"BUTTON", L"Emergency Terminate",
+                WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+                splitX + 30, screenHeight - 80, 200, 40,
+                hwnd, (HMENU)ID_OVERLAY_TERMINATE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+                
+            return 0;
+        }
+        case WM_COMMAND: {
+            if (LOWORD(wParam) == ID_OVERLAY_TERMINATE_BTN) {
+                // Show 3 annoying message boxes
+                int result1 = MessageBox(hwnd, L"Are you sure you want to skip your eye exercise? Your eyes need rest!", L"Warning 1/3", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+                if (result1 == IDYES) {
+                    int result2 = MessageBox(hwnd, L"Skipping these breaks can lead to permanent digital eye strain. Are you ABSOLUTELY sure this is an emergency?", L"Warning 2/3", MB_YESNO | MB_ICONWARNING | MB_TOPMOST);
+                    if (result2 == IDYES) {
+                        int result3 = MessageBox(hwnd, L"Final confirmation. If you click Yes, the exercise will be cancelled.", L"Warning 3/3", MB_YESNO | MB_ICONERROR | MB_TOPMOST);
+                        if (result3 == IDYES) {
+                            DestroyWindow(hwnd);
+                        }
+                    }
+                }
+            }
             return 0;
         }
         case WM_TIMER: {
@@ -335,6 +376,23 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             }
             
             DrawText(hdc, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            
+            // Draw Medical Information and Settings in the right pane
+            RECT rcRightText = rcRight;
+            rcRightText.left += 30;
+            rcRightText.right -= 30;
+            rcRightText.top += 50;
+            rcRightText.bottom -= 50;
+            
+            const wchar_t* infoText = L"MEDICAL INFORMATION\n\n"
+                                      L"Extended periods of screen time can cause digital eye strain. "
+                                      L"It is recommended to follow the 20-20-20 rule. Every 20 minutes, "
+                                      L"take a 20-second break and focus your eyes on something at least 20 feet away.\n\n\n"
+                                      L"SETTINGS\n\n"
+                                      L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.\n\n"
+                                      L"Press Ctrl+Shift+Q to exit this screen if needed.";
+                                      
+            DrawText(hdc, infoText, -1, &rcRightText, DT_LEFT | DT_TOP | DT_WORDBREAK);
             
             EndPaint(hwnd, &ps);
             return 0;
