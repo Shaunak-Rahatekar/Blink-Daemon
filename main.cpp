@@ -42,6 +42,11 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    int result = MessageBox(NULL, L"Do you want to start Blink Daemon?", L"Startup Confirmation", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST);
+    if (result == IDNO) {
+        return 0;
+    }
+
     // 1. Register the Window Class
     const wchar_t CLASS_NAME[] = L"BlinkDaemonMessageClass";
     const wchar_t SETTINGS_CLASS_NAME[] = L"BlinkDaemonSettingsClass";
@@ -103,8 +108,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     nid.uID = 1; // Unique ID for our icon
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_USER_TRAY_ICON;
-    // Load the standard application icon (can be customized later)
-    nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    // Load the custom logo from the local file
+    nid.hIcon = (HICON)LoadImage(NULL, L"icon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+    // Fallback if the icon file is missing
+    if (nid.hIcon == NULL) {
+        nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    }
+    
     lstrcpy(nid.szTip, L"Blink Daemon");
 
     // Add the icon to the system tray
