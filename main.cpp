@@ -7,6 +7,7 @@
 #include <shellapi.h>
 #include <stdlib.h> // For _wtoi
 #include <string.h> // For memcmp
+#include <time.h>   // For rand seed
 
 // Define the display state GUID manually to fix MinGW/GCC linker errors
 const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0x83, 0x40, 0x0B, 0xA4, 0x20, 0xF9, 0xB2, 0xDB } };
@@ -31,6 +32,10 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 // Overlay Window Control IDs
 #define ID_OVERLAY_TERMINATE_BTN 4001
 
+// Math Window Control IDs
+#define ID_MATH_OK_BTN 5001
+#define ID_MATH_INPUT_TXT 5002
+
 // Global variables
 NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
@@ -44,6 +49,11 @@ int g_exerciseStep = 1;
 DWORD g_timerStartTime = 0;
 int g_remainingTimeMs = 0;
 bool g_isTimerPaused = false;
+
+// Math Challenge State
+int g_mathNum1 = 0;
+int g_mathNum2 = 0;
+HWND g_hMathWindow = NULL;
 
 void StartWorkTimer(int remainingMs) {
     if (remainingMs <= 0) remainingMs = g_workIntervalMinutes * 60 * 1000;
@@ -68,6 +78,7 @@ void PauseWorkTimer() {
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK MathWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 bool GetRunOnStartup() {
     HKEY hKey;
@@ -99,6 +110,8 @@ void SetRunOnStartup(bool enable) {
 
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    srand((unsigned int)time(NULL));
+
     int result = MessageBox(NULL, L"Do you want to start Blink Daemon?", L"Startup Confirmation", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST);
     if (result == IDNO) {
         return 0;
@@ -135,6 +148,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     overlayWc.lpszClassName = L"BlinkDaemonOverlayClass";
     overlayWc.hCursor = LoadCursor(NULL, IDC_ARROW);
     if (!RegisterClass(&overlayWc)) {
+        return 0;
+    }
+
+    // Register Math Challenge Window Class
+    WNDCLASS mathWc = {};
+    mathWc.lpfnWndProc = MathWindowProc;
+    mathWc.hInstance = hInstance;
+    mathWc.lpszClassName = L"BlinkDaemonMathChallengeClass";
+    mathWc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    mathWc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    if (!RegisterClass(&mathWc)) {
         return 0;
     }
 
@@ -432,7 +456,21 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                             if (result4 == IDYES) {
                                 int result5 = MessageBox(hwnd, L"Final confirmation. If you click Yes, the exercise will be cancelled.", L"Warning 5/5", MB_YESNO | MB_ICONERROR | MB_TOPMOST);
                                 if (result5 == IDYES) {
-                                    DestroyWindow(hwnd);
+                                    g_mathNum1 = rand() % 10;
+                                    g_mathNum2 = rand() % 10;
+                                    if (g_hMathWindow == NULL) {
+                                        g_hMathWindow = CreateWindowEx(
+                                            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                                            L"BlinkDaemonMathChallengeClass",
+                                            L"Math Challenge",
+                                            WS_POPUP | WS_VISIBLE | WS_BORDER,
+                                            GetSystemMetrics(SM_CXSCREEN) / 2 - 150,
+                                            GetSystemMetrics(SM_CYSCREEN) / 2 - 100,
+                                            300, 200,
+                                            hwnd, NULL, GetModuleHandle(NULL), NULL
+                                        );
+                                        EnableWindow(hwnd, FALSE); // Make it modal
+                                    }
                                 }
                             }
                         }
@@ -533,3 +571,58 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
+
+LRESULT CALLBACK MathWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_CREATE: {
+            wchar_t question[50];
+            wsprintf(question, L"What is %d + %d?", g_mathNum1, g_mathNum2);
+
+            CreateWindow(L"STATIC", question,
+                WS_VISIBLE | WS_CHILD | SS_CENTER,
+                50, 40, 200, 20,
+                hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+
+            CreateWindow(L"EDIT", L"",
+                WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER | ES_CENTER,
+                100, 80, 100, 25,
+                hwnd, (HMENU)ID_MATH_INPUT_TXT, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+
+            CreateWindow(L"BUTTON", L"OK",
+                WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                100, 130, 100, 30,
+                hwnd, (HMENU)ID_MATH_OK_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            return 0;
+        }
+        case WM_COMMAND: {
+            if (LOWORD(wParam) == ID_MATH_OK_BTN) {
+                HWND hTxt = GetDlgItem(hwnd, ID_MATH_INPUT_TXT);
+                wchar_t buffer[10];
+                GetWindowText(hTxt, buffer, 10);
+                int answer = _wtoi(buffer);
+
+                if (answer == (g_mathNum1 + g_mathNum2)) {
+                    EnableWindow(g_hOverlayWindow, TRUE);
+                    DestroyWindow(g_hOverlayWindow);
+                    DestroyWindow(hwnd);
+                } else {
+                    MessageBox(hwnd, L"Incorrect answer! Termination cancelled.", L"Error", MB_OK | MB_ICONERROR | MB_TOPMOST);
+                    EnableWindow(g_hOverlayWindow, TRUE);
+                    DestroyWindow(hwnd);
+                }
+            }
+            return 0;
+        }
+        case WM_CLOSE: {
+            EnableWindow(g_hOverlayWindow, TRUE);
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        case WM_DESTROY: {
+            g_hMathWindow = NULL;
+            return 0;
+        }
+    }
+    return DefWindowProc(hwnd, uMsg, wParam, lParam);
+}
+
