@@ -37,6 +37,9 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 #define ID_MATH_OK_BTN 5001
 #define ID_MATH_INPUT_TXT 5002
 
+// App Icon Resource ID
+#define IDI_APPICON 101
+
 // Global variables
 NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
@@ -139,6 +142,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     settingsWc.lpszClassName = SETTINGS_CLASS_NAME;
     settingsWc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     settingsWc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    settingsWc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APPICON));
     if (!RegisterClass(&settingsWc)) {
         return 0;
     }
@@ -149,6 +153,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     overlayWc.hInstance = hInstance;
     overlayWc.lpszClassName = L"BlinkDaemonOverlayClass";
     overlayWc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    overlayWc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APPICON));
     if (!RegisterClass(&overlayWc)) {
         return 0;
     }
@@ -160,6 +165,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     mathWc.lpszClassName = L"BlinkDaemonMathChallengeClass";
     mathWc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     mathWc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    mathWc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APPICON));
     if (!RegisterClass(&mathWc)) {
         return 0;
     }
@@ -194,9 +200,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     nid.uID = 1; // Unique ID for our icon
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_USER_TRAY_ICON;
-    // Load the custom logo from the local file
-    nid.hIcon = (HICON)LoadImage(NULL, L"icon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
-    // Fallback if the icon file is missing
+    // Load the custom logo from the embedded resource
+    nid.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APPICON));
+    // Fallback if the resource is missing
     if (nid.hIcon == NULL) {
         nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
     }

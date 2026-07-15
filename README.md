@@ -18,17 +18,25 @@ This project is built using native C++ and Windows APIs. It can be compiled usin
 ### Using MSVC (Visual Studio)
 1. Open the **Developer Command Prompt for Visual Studio**.
 2. Navigate to this directory.
-3. Run the following command to compile and link against the necessary Windows libraries:
+3. Compile the resource file to embed the icon:
    ```cmd
-   cl.exe /EHsc /W4 /DUNICODE /D_UNICODE main.cpp User32.lib Shell32.lib Gdi32.lib /link /SUBSYSTEM:WINDOWS /OUT:BlinkDaemon.exe
+   rc.exe resource.rc
+   ```
+4. Run the following command to compile and link the code with the resource:
+   ```cmd
+   cl.exe /EHsc /W4 /DUNICODE /D_UNICODE main.cpp resource.res User32.lib Shell32.lib Gdi32.lib /link /SUBSYSTEM:WINDOWS /OUT:BlinkDaemon.exe
    ```
 
 ### Using MinGW / GCC
 1. Open your MinGW/MSYS2 terminal (or PowerShell, if `g++` is in your PATH).
 2. Navigate to this directory.
-3. Run the following command:
+3. Compile the resource file to embed the icon:
    ```bash
-   g++ main.cpp -o BlinkDaemon.exe -mwindows -municode
+   windres resource.rc -O coff -o resource.res
+   ```
+4. Run the following command to compile and link the code with the resource:
+   ```bash
+   g++ main.cpp resource.res -o BlinkDaemon.exe -mwindows -municode
    ```
 *(The `-mwindows` flag ensures it builds as a GUI application without opening a black console window.)*
 
