@@ -247,3 +247,28 @@ This prevents the black console window from flashing on the screen when the daem
 When compiling, you generally choose between two configurations:
 - **Debug Build**: Disables optimizations (`-O0` or `/Od`) and embeds heavy debugging symbols (`.pdb` files in MSVC). This makes stepping through the code in a debugger easy, but the resulting executable is large and slow.
 - **Release Build**: Enables aggressive compiler optimizations (`-O2` or `/O2`). The compiler might inline functions, unroll loops, and strip out unnecessary metadata. The resulting executable is highly performant and tiny, suitable for deployment, but very difficult to reverse-engineer or step through in a debugger.
+
+## Module 7: Advanced UI and Power Management
+
+To make Blink Daemon truly robust and hilariously strict, we integrated some advanced Native Win32 techniques.
+
+### 1. Power Management (`WM_POWERBROADCAST`)
+
+A naive timer using `SetTimer` continues to count down even when the display turns off. This leads to the frustrating scenario where a user wakes up their computer and is instantly hit with a break overlay.
+
+To prevent this, we registered for Power Setting Notifications:
+`RegisterPowerSettingNotification(hwnd, &CUSTOM_GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);`
+
+By intercepting `WM_POWERBROADCAST`, we detect exactly when the monitor sleeps (`PBT_POWERSETTINGCHANGE`) or the system suspends (`PBT_APMSUSPEND`). We dynamically pause our internal timer and calculate the remaining time so the countdown accurately measures *active screen time*.
+
+### 2. Modal-like Custom Dialogs
+
+Because the Win32 API doesn't have a simple VBScript-style `InputBox`, building the Math Challenge required defining a completely new window class (`BlinkDaemonMathChallengeClass`).
+
+We achieve a "Modal" effect (where the user cannot click the parent window) not by using a standard Dialog Template resource, but by programmatically disabling the parent window (`EnableWindow(g_hOverlayWindow, FALSE)`) while the child popup is active. When the math challenge is completed or destroyed, we explicitly re-enable the parent overlay.
+
+### 3. High-Frequency State Tracking (The Evasive Button)
+
+To make the "Emergency Terminate" button run away from the cursor, we employed a high-frequency background timer (`ID_EVASION_TIMER` at 50ms intervals). 
+
+During each tick, we compare the current screen coordinates of the mouse (`GetCursorPos`) with the screen bounding box of the button (`GetWindowRect`). If the cursor breaches the proximity threshold, we use `SetWindowPos` to instantaneously teleport the button to a new random X/Y coordinate relative to the parent's client area!
