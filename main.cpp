@@ -28,6 +28,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 // Timer IDs
 #define ID_WORK_TIMER 3001
 #define ID_EXERCISE_TIMER 3002
+#define ID_EVASION_TIMER 3003
 
 // Overlay Window Control IDs
 #define ID_OVERLAY_TERMINATE_BTN 4001
@@ -44,6 +45,7 @@ HWND g_hSettingsWindow = NULL;
 HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
 int g_exerciseStep = 1;
+int g_buttonJumps = 0;
 
 // Power State Management
 DWORD g_timerStartTime = 0;
@@ -430,6 +432,9 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_CREATE: {
             // Start the exercise sequence timer (60 seconds per step)
             SetTimer(hwnd, ID_EXERCISE_TIMER, 60 * 1000, NULL);
+            // Start evasion timer for the terminate button (50ms)
+            SetTimer(hwnd, ID_EVASION_TIMER, 50, NULL);
+            g_buttonJumps = 0;
             
             // Create Emergency Terminate button
             int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -486,6 +491,38 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
                     InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
+                }
+            } else if (wParam == ID_EVASION_TIMER) {
+                if (g_buttonJumps < 10) {
+                    HWND hBtn = GetDlgItem(hwnd, ID_OVERLAY_TERMINATE_BTN);
+                    if (hBtn) {
+                        POINT pt;
+                        GetCursorPos(&pt); // Screen coordinates
+
+                        RECT btnRect;
+                        GetWindowRect(hBtn, &btnRect); // Screen coordinates
+
+                        // Inflate the rectangle by 50 pixels to create a proximity zone
+                        InflateRect(&btnRect, 50, 50);
+
+                        if (PtInRect(&btnRect, pt)) {
+                            // Teleport!
+                            RECT overlayRect;
+                            GetClientRect(hwnd, &overlayRect);
+                            
+                            int btnW = 200;
+                            int btnH = 40;
+                            int maxX = overlayRect.right - overlayRect.left - btnW;
+                            int maxY = overlayRect.bottom - overlayRect.top - btnH;
+                            
+                            int newX = (maxX > 0) ? (rand() % maxX) : 0;
+                            int newY = (maxY > 0) ? (rand() % maxY) : 0;
+                            
+                            // SetWindowPos uses parent client coordinates for child windows
+                            SetWindowPos(hBtn, NULL, newX, newY, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+                            g_buttonJumps++;
+                        }
+                    }
                 }
             }
             return 0;
@@ -565,6 +602,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         }
         case WM_DESTROY: {
             KillTimer(hwnd, ID_EXERCISE_TIMER);
+            KillTimer(hwnd, ID_EVASION_TIMER);
             g_hOverlayWindow = NULL;
             return 0;
         }
