@@ -18,6 +18,7 @@
 #define ID_SETTINGS_ENABLE_CHK 2001
 #define ID_SETTINGS_INTERVAL_TXT 2002
 #define ID_SETTINGS_SAVE_BTN 2003
+#define ID_SETTINGS_STARTUP_CHK 2004
 
 // Timer IDs
 #define ID_WORK_TIMER 3001
@@ -35,10 +36,62 @@ HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
 int g_exerciseStep = 1;
 
+// Power State Management
+DWORD g_timerStartTime = 0;
+int g_remainingTimeMs = 0;
+bool g_isTimerPaused = false;
+
+void StartWorkTimer(int remainingMs) {
+    if (remainingMs <= 0) remainingMs = g_workIntervalMinutes * 60 * 1000;
+    g_remainingTimeMs = remainingMs;
+    g_timerStartTime = GetTickCount();
+    SetTimer(g_hMainWindow, ID_WORK_TIMER, g_remainingTimeMs, NULL);
+    g_isTimerPaused = false;
+}
+
+void PauseWorkTimer() {
+    if (!g_isTimerPaused) {
+        KillTimer(g_hMainWindow, ID_WORK_TIMER);
+        DWORD elapsed = GetTickCount() - g_timerStartTime;
+        g_remainingTimeMs -= elapsed;
+        if (g_remainingTimeMs < 0) g_remainingTimeMs = 0;
+        g_isTimerPaused = true;
+    }
+}
+
+
 // Window Procedure forward declaration
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+bool GetRunOnStartup() {
+    HKEY hKey;
+    const wchar_t* keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    bool enabled = false;
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, keyPath, 0, KEY_QUERY_VALUE, &hKey) == ERROR_SUCCESS) {
+        if (RegQueryValueEx(hKey, L"BlinkDaemon", NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
+            enabled = true;
+        }
+        RegCloseKey(hKey);
+    }
+    return enabled;
+}
+
+void SetRunOnStartup(bool enable) {
+    HKEY hKey;
+    const wchar_t* keyPath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, keyPath, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        if (enable) {
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileName(NULL, exePath, MAX_PATH);
+            RegSetValueEx(hKey, L"BlinkDaemon", 0, REG_SZ, (const BYTE*)exePath, (DWORD)((wcslen(exePath) + 1) * sizeof(wchar_t)));
+        } else {
+            RegDeleteValue(hKey, L"BlinkDaemon");
+        }
+        RegCloseKey(hKey);
+    }
+}
 
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -102,6 +155,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     
     g_hMainWindow = hwnd;
 
+    // Register for display state power notifications
+    RegisterPowerSettingNotification(hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+
     // 3. Initialize and Add the System Tray Icon
     nid.cbSize = sizeof(NOTIFYICONDATA);
     nid.hWnd = hwnd;
@@ -133,7 +189,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 
     // 3.5. Start the background timer if enabled
     if (g_isDaemonEnabled) {
-        SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
+        StartWorkTimer(0);
     }
 
     // 4. Run the Message Loop
@@ -203,6 +259,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         case WM_TIMER: {
             if (wParam == ID_WORK_TIMER) {
+                // Kill repeating timer to avoid triggering early next time
+                KillTimer(hwnd, ID_WORK_TIMER);
+                
                 // Spawn the lockdown overlay instead of a message box
                 if (g_hOverlayWindow == NULL) {
                     g_exerciseStep = 1;
@@ -214,6 +273,31 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
                         NULL, NULL, GetModuleHandle(NULL), NULL
                     );
+                }
+                
+                // Restart for the next full interval
+                StartWorkTimer(g_workIntervalMinutes * 60 * 1000);
+            }
+            return 0;
+        }
+
+        case WM_POWERBROADCAST: {
+            if (wParam == PBT_POWERSETTINGCHANGE) {
+                POWERBROADCAST_SETTING* pbs = (POWERBROADCAST_SETTING*)lParam;
+                if (pbs->PowerSetting == GUID_CONSOLE_DISPLAY_STATE) {
+                    if (pbs->Data[0] == 0) { // Display off
+                        PauseWorkTimer();
+                    } else if (pbs->Data[0] == 1) { // Display on
+                        if (g_isDaemonEnabled && g_isTimerPaused) {
+                            StartWorkTimer(g_remainingTimeMs);
+                        }
+                    }
+                }
+            } else if (wParam == PBT_APMSUSPEND) {
+                PauseWorkTimer();
+            } else if (wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMESUSPEND) {
+                if (g_isDaemonEnabled && g_isTimerPaused) {
+                    StartWorkTimer(g_remainingTimeMs);
                 }
             }
             return 0;
@@ -240,16 +324,23 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 hwnd, (HMENU)ID_SETTINGS_ENABLE_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             SendMessage(hChk, BM_SETCHECK, g_isDaemonEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 
+            // Run on Startup Checkbox
+            HWND hStartupChk = CreateWindow(L"BUTTON", L"Run on Windows Startup",
+                WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                20, 45, 200, 20,
+                hwnd, (HMENU)ID_SETTINGS_STARTUP_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            SendMessage(hStartupChk, BM_SETCHECK, GetRunOnStartup() ? BST_CHECKED : BST_UNCHECKED, 0);
+
             // Interval Label
             CreateWindow(L"STATIC", L"Work Interval (minutes):",
                 WS_VISIBLE | WS_CHILD,
-                20, 60, 150, 20,
+                20, 75, 150, 20,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Interval TextBox
             HWND hTxt = CreateWindow(L"EDIT", L"",
                 WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER,
-                180, 60, 50, 20,
+                180, 75, 50, 20,
                 hwnd, (HMENU)ID_SETTINGS_INTERVAL_TXT, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             
             wchar_t buffer[10];
@@ -259,13 +350,13 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             // Medical Text Block
             CreateWindow(L"STATIC", L"Medical Information:\nExtended periods of screen time can cause digital eye strain. It is recommended to follow the 20-20-20 rule. Every 20 minutes, take a 20-second break and focus your eyes on something at least 20 feet away.",
                 WS_VISIBLE | WS_CHILD,
-                20, 100, 340, 80,
+                20, 115, 340, 80,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Save Button
             CreateWindow(L"BUTTON", L"Save",
                 WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                150, 200, 80, 30,
+                150, 215, 80, 30,
                 hwnd, (HMENU)ID_SETTINGS_SAVE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             return 0;
@@ -276,6 +367,11 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 HWND hChk = GetDlgItem(hwnd, ID_SETTINGS_ENABLE_CHK);
                 g_isDaemonEnabled = (SendMessage(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
+                // Read Startup Checkbox state
+                HWND hStartupChk = GetDlgItem(hwnd, ID_SETTINGS_STARTUP_CHK);
+                bool runOnStartup = (SendMessage(hStartupChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                SetRunOnStartup(runOnStartup);
+
                 // Read TextBox state
                 HWND hTxt = GetDlgItem(hwnd, ID_SETTINGS_INTERVAL_TXT);
                 wchar_t buffer[10];
@@ -284,9 +380,9 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 if (g_workIntervalMinutes <= 0) g_workIntervalMinutes = 1; // Basic validation
 
                 // Apply Timer Settings
-                KillTimer(g_hMainWindow, ID_WORK_TIMER);
+                PauseWorkTimer();
                 if (g_isDaemonEnabled) {
-                    SetTimer(g_hMainWindow, ID_WORK_TIMER, g_workIntervalMinutes * 60 * 1000, NULL);
+                    StartWorkTimer(g_workIntervalMinutes * 60 * 1000);
                 }
 
                 DestroyWindow(hwnd);
