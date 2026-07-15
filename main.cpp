@@ -6,6 +6,10 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <stdlib.h> // For _wtoi
+#include <string.h> // For memcmp
+
+// Define the display state GUID manually to fix MinGW/GCC linker errors
+const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0x83, 0x40, 0x0B, 0xA4, 0x20, 0xF9, 0xB2, 0xDB } };
 
 // Custom message identifier for system tray interactions
 #define WM_USER_TRAY_ICON (WM_USER + 1)
@@ -156,7 +160,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     g_hMainWindow = hwnd;
 
     // Register for display state power notifications
-    RegisterPowerSettingNotification(hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+    RegisterPowerSettingNotification(hwnd, &CUSTOM_GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
 
     // 3. Initialize and Add the System Tray Icon
     nid.cbSize = sizeof(NOTIFYICONDATA);
@@ -284,7 +288,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         case WM_POWERBROADCAST: {
             if (wParam == PBT_POWERSETTINGCHANGE) {
                 POWERBROADCAST_SETTING* pbs = (POWERBROADCAST_SETTING*)lParam;
-                if (pbs->PowerSetting == GUID_CONSOLE_DISPLAY_STATE) {
+                if (memcmp(&pbs->PowerSetting, &CUSTOM_GUID_CONSOLE_DISPLAY_STATE, sizeof(GUID)) == 0) {
                     if (pbs->Data[0] == 0) { // Display off
                         PauseWorkTimer();
                     } else if (pbs->Data[0] == 1) { // Display on
