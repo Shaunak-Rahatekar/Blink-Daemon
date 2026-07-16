@@ -51,6 +51,7 @@ HWND g_hOverlayWindow = NULL;
 int g_exerciseStep = 1;
 int g_buttonJumps = 0;
 DWORD g_stepStartTime = 0;
+DWORD g_blackoutStartTime = 0;
 
 // Power State Management
 DWORD g_timerStartTime = 0;
@@ -446,6 +447,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             SetTimer(hwnd, ID_UI_TIMER, 1000, NULL);
             g_buttonJumps = 0;
             g_stepStartTime = GetTickCount();
+            g_blackoutStartTime = GetTickCount();
             
             // Create Emergency Terminate button
             int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -601,6 +603,28 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
             // Draw the instruction line centered
             DrawText(hdc, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            
+            // Calculate total remaining blackout time (5 steps * 60 seconds = 300 seconds)
+            DWORD totalElapsed = GetTickCount() - g_blackoutStartTime;
+            int totalRemaining = 300 - (totalElapsed / 1000);
+            if (totalRemaining < 0) totalRemaining = 0;
+
+            int min = totalRemaining / 60;
+            int sec = totalRemaining % 60;
+            
+            wchar_t totalTimerText[64];
+            wsprintf(totalTimerText, L"Total Remaining Time: %02d:%02d", min, sec);
+            
+            // Draw the total timer below the instruction line
+            HFONT hFontTotalTimer = CreateFont(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
+            HFONT hOldFont2 = (HFONT)SelectObject(hdc, hFontTotalTimer);
+
+            RECT rcTotalTimer = rcLeft;
+            rcTotalTimer.top = rcLeft.bottom / 2 + 40; // Place it below the center
+            DrawText(hdc, totalTimerText, -1, &rcTotalTimer, DT_CENTER | DT_TOP | DT_SINGLELINE);
+
+            SelectObject(hdc, hOldFont2);
+            DeleteObject(hFontTotalTimer);
             
             // Draw Medical Information and Settings in the right pane
             RECT rcRightText = rcRight;
