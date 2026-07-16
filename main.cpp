@@ -625,6 +625,20 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
             SelectObject(hdc, hOldFont2);
             DeleteObject(hFontTotalTimer);
+
+            // Draw encouraging message
+            wchar_t encouragingMsg[128];
+            wsprintf(encouragingMsg, L"Only %d min %d sec remaining. It's for your own good!", min, sec);
+            
+            HFONT hFontEncourage = CreateFont(24, 0, 0, 0, FW_NORMAL, TRUE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
+            HFONT hOldFont3 = (HFONT)SelectObject(hdc, hFontEncourage);
+
+            RECT rcEncourage = rcLeft;
+            rcEncourage.top = rcLeft.bottom / 2 + 90; // Place it below the total timer
+            DrawText(hdc, encouragingMsg, -1, &rcEncourage, DT_CENTER | DT_TOP | DT_SINGLELINE);
+
+            SelectObject(hdc, hOldFont3);
+            DeleteObject(hFontEncourage);
             
             // Draw Medical Information and Settings in the right pane
             RECT rcRightText = rcRight;
