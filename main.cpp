@@ -29,6 +29,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 #define ID_WORK_TIMER 3001
 #define ID_EXERCISE_TIMER 3002
 #define ID_EVASION_TIMER 3003
+#define ID_UI_TIMER 3004
 
 // Overlay Window Control IDs
 #define ID_OVERLAY_TERMINATE_BTN 4001
@@ -49,6 +50,7 @@ HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
 int g_exerciseStep = 1;
 int g_buttonJumps = 0;
+DWORD g_stepStartTime = 0;
 
 // Power State Management
 DWORD g_timerStartTime = 0;
@@ -440,7 +442,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             SetTimer(hwnd, ID_EXERCISE_TIMER, 60 * 1000, NULL);
             // Start evasion timer for the terminate button (50ms)
             SetTimer(hwnd, ID_EVASION_TIMER, 50, NULL);
+            // Start UI update timer for the countdown (1 second)
+            SetTimer(hwnd, ID_UI_TIMER, 1000, NULL);
             g_buttonJumps = 0;
+            g_stepStartTime = GetTickCount();
             
             // Create Emergency Terminate button
             int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -493,11 +498,14 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_TIMER: {
             if (wParam == ID_EXERCISE_TIMER) {
                 g_exerciseStep++;
+                g_stepStartTime = GetTickCount();
                 if (g_exerciseStep > 5) {
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
                     InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
                 }
+            } else if (wParam == ID_UI_TIMER) {
+                InvalidateRect(hwnd, NULL, TRUE); // Update countdown timer
             } else if (wParam == ID_EVASION_TIMER) {
                 if (g_buttonJumps < 10) {
                     HWND hBtn = GetDlgItem(hwnd, ID_OVERLAY_TERMINATE_BTN);
@@ -572,6 +580,26 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 case 5: instruction = L"Step 5/5: Close your eyes tightly for 60 seconds."; break;
             }
             
+            // Calculate remaining time
+            DWORD elapsed = GetTickCount() - g_stepStartTime;
+            int remaining = 60 - (elapsed / 1000);
+            if (remaining < 0) remaining = 0;
+
+            wchar_t timerText[16];
+            wsprintf(timerText, L"00:%02d", remaining);
+
+            // Draw the big timer
+            HFONT hFontTimer = CreateFont(120, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFontTimer);
+
+            RECT rcTimer = rcLeft;
+            rcTimer.bottom = rcLeft.bottom / 2 - 20; // Place it just above the center
+            DrawText(hdc, timerText, -1, &rcTimer, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
+
+            SelectObject(hdc, hOldFont);
+            DeleteObject(hFontTimer);
+
+            // Draw the instruction line centered
             DrawText(hdc, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             
             // Draw Medical Information and Settings in the right pane
@@ -609,6 +637,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_DESTROY: {
             KillTimer(hwnd, ID_EXERCISE_TIMER);
             KillTimer(hwnd, ID_EVASION_TIMER);
+            KillTimer(hwnd, ID_UI_TIMER);
             g_hOverlayWindow = NULL;
             return 0;
         }
