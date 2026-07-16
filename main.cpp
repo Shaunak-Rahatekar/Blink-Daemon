@@ -63,6 +63,54 @@ int g_mathNum1 = 0;
 int g_mathNum2 = 0;
 HWND g_hMathWindow = NULL;
 
+// Daily Stats
+int GetCurrentDateInt() {
+    time_t t = time(NULL);
+    struct tm* tm = localtime(&t);
+    return (tm->tm_year + 1900) * 10000 + (tm->tm_mon + 1) * 100 + tm->tm_mday;
+}
+
+void LoadStats(int& completedToday, int& abortedToday) {
+    HKEY hKey;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD date = 0;
+        DWORD size = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, L"LastDate", NULL, NULL, (LPBYTE)&date, &size) == ERROR_SUCCESS) {
+            if (date == GetCurrentDateInt()) {
+                size = sizeof(DWORD);
+                RegQueryValueEx(hKey, L"CompletedToday", NULL, NULL, (LPBYTE)&completedToday, &size);
+                size = sizeof(DWORD);
+                RegQueryValueEx(hKey, L"AbortedToday", NULL, NULL, (LPBYTE)&abortedToday, &size);
+            } else {
+                completedToday = 0;
+                abortedToday = 0;
+            }
+        } else {
+            completedToday = 0;
+            abortedToday = 0;
+        }
+        RegCloseKey(hKey);
+    }
+}
+
+void IncrementStat(bool completed) {
+    int completedToday = 0;
+    int abortedToday = 0;
+    LoadStats(completedToday, abortedToday);
+    
+    if (completed) completedToday++;
+    else abortedToday++;
+
+    HKEY hKey;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD date = GetCurrentDateInt();
+        RegSetValueEx(hKey, L"LastDate", 0, REG_DWORD, (const BYTE*)&date, sizeof(DWORD));
+        RegSetValueEx(hKey, L"CompletedToday", 0, REG_DWORD, (const BYTE*)&completedToday, sizeof(DWORD));
+        RegSetValueEx(hKey, L"AbortedToday", 0, REG_DWORD, (const BYTE*)&abortedToday, sizeof(DWORD));
+        RegCloseKey(hKey);
+    }
+}
+
 void StartWorkTimer(int remainingMs) {
     if (remainingMs <= 0) remainingMs = g_workIntervalMinutes * 60 * 1000;
     g_remainingTimeMs = remainingMs;
@@ -502,6 +550,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 g_exerciseStep++;
                 g_stepStartTime = GetTickCount();
                 if (g_exerciseStep > 5) {
+                    IncrementStat(true);
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
                     InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
@@ -647,13 +696,22 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             rcRightText.top += 50;
             rcRightText.bottom -= 50;
             
-            const wchar_t* infoText = L"MEDICAL INFORMATION\n\n"
-                                      L"Extended periods of screen time can cause digital eye strain. "
-                                      L"It is recommended to follow the 20-20-20 rule. Every 20 minutes, "
-                                      L"take a 20-second break and focus your eyes on something at least 20 feet away.\n\n\n"
-                                      L"SETTINGS\n\n"
-                                      L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.\n\n"
-                                      L"Press Ctrl+Shift+Q to exit this screen if needed.";
+            int completedToday = 0;
+            int abortedToday = 0;
+            LoadStats(completedToday, abortedToday);
+
+            wchar_t infoText[1024];
+            wsprintf(infoText, L"DAILY STATS\n\n"
+                               L"Breaks Completed Today: %d\n"
+                               L"Breaks Skipped Today: %d\n\n\n"
+                               L"MEDICAL INFORMATION\n\n"
+                               L"Extended periods of screen time can cause digital eye strain. "
+                               L"It is recommended to follow the 20-20-20 rule. Every 20 minutes, "
+                               L"take a 20-second break and focus your eyes on something at least 20 feet away.\n\n\n"
+                               L"SETTINGS\n\n"
+                               L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.\n\n"
+                               L"Press Ctrl+Shift+Q to exit this screen if needed.",
+                               completedToday, abortedToday);
                                       
             DrawText(hdc, infoText, -1, &rcRightText, DT_LEFT | DT_TOP | DT_WORDBREAK);
             
@@ -663,6 +721,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_KEYDOWN: {
             // Secret override to destroy the window during testing (Ctrl+Shift+Q)
             if (wParam == 'Q' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+                IncrementStat(false);
                 DestroyWindow(hwnd);
             }
             return 0;
@@ -713,6 +772,7 @@ LRESULT CALLBACK MathWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 int answer = _wtoi(buffer);
 
                 if (answer == (g_mathNum1 + g_mathNum2)) {
+                    IncrementStat(false);
                     EnableWindow(g_hOverlayWindow, TRUE);
                     DestroyWindow(g_hOverlayWindow);
                     DestroyWindow(hwnd);
