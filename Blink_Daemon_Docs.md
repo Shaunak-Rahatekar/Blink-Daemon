@@ -180,6 +180,20 @@ GDI is the core, legacy graphics rendering system in Windows. It provides functi
 
 To draw anything in Win32, you must obtain a **Device Context (HDC)**. A device context is an abstraction layer that links your C++ code to the physical drawing surface (in this case, the overlay window).
 
+### 2. Custom Fonts (`CreateFont`)
+
+By default, Win32 draws text using a very basic system font. To draw the large countdown timers and encouraging messages, we dynamically create custom logical fonts:
+
+```cpp
+HFONT hFontTimer = CreateFont(120, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
+HFONT hOldFont = (HFONT)SelectObject(hdc, hFontTimer);
+// ... DrawText ...
+SelectObject(hdc, hOldFont);
+DeleteObject(hFontTimer);
+```
+
+We must use `SelectObject` to load the new font into our Device Context, keeping a reference to the old font. After drawing, it is critical to restore the old font and call `DeleteObject` to free the custom font memory and avoid leaks.
+
 ### 2. The `WM_PAINT` Lifecycle
 
 Windows applications do not constantly redraw themselves in a while-loop like video games do. Instead, the OS sends a `WM_PAINT` message whenever a portion of the window becomes "invalid" (e.g., when the window is first created, resized, or brought to the foreground).
@@ -187,7 +201,7 @@ Windows applications do not constantly redraw themselves in a while-loop like vi
 Inside `WM_PAINT`, you must follow a strict ritual:
 
 1. **`BeginPaint`**: This function prepares the window for painting. It gives you the `HDC` and a `PAINTSTRUCT` containing information about which specific area of the window needs to be redrawn (the `rcPaint` rectangle).
-2. **Drawing Calls**: We use `FillRect` with our custom `HBRUSH` objects to color the screen, and `DrawText` to render our current instruction based on `g_exerciseStep`.
+2. **Drawing Calls**: We use `FillRect` with our custom `HBRUSH` objects to color the screen, and `DrawText` with our custom `HFONT` to render the live countdown timers and the current instruction.
 3. **`EndPaint`**: This is critical. It releases the device context and tells Windows that the invalid area has been resolved. Failing to call `EndPaint` will cause the OS to continuously spam `WM_PAINT` messages, freezing your application.
 
 ### 3. Memory Management and `DeleteObject`
@@ -272,3 +286,23 @@ We achieve a "Modal" effect (where the user cannot click the parent window) not 
 To make the "Emergency Terminate" button run away from the cursor, we employed a high-frequency background timer (`ID_EVASION_TIMER` at 50ms intervals). 
 
 During each tick, we compare the current screen coordinates of the mouse (`GetCursorPos`) with the screen bounding box of the button (`GetWindowRect`). If the cursor breaches the proximity threshold, we use `SetWindowPos` to instantaneously teleport the button to a new random X/Y coordinate relative to the parent's client area!
+
+## Module 8: Windows Registry and Persistence
+
+To add the Gamification and Daily Stats feature, Blink Daemon needed a way to store data that persists across reboots. Instead of creating arbitrary text files, we utilized the native Windows Registry.
+
+### 1. Opening and Creating Keys
+
+The Windows Registry is a hierarchical database. We store our data under `HKEY_CURRENT_USER\Software\BlinkDaemon`.
+
+```cpp
+HKEY hKey;
+RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, NULL, 0, KEY_READ | KEY_WRITE, NULL, &hKey, NULL);
+```
+`RegCreateKeyEx` attempts to open the key. If it doesn't exist, Windows automatically creates it for us.
+
+### 2. Reading and Writing Values
+
+Inside our custom `LoadStats` and `IncrementStat` functions, we use `RegQueryValueEx` and `RegSetValueEx` to read and write simple integer (DWORD) values representing the daily date, breaks completed, and breaks skipped.
+
+By combining `localtime()` from the standard C library to generate a daily integer format (like `20260716`), the daemon intelligently resets your stats to zero when you cross over into a new day, creating a seamless background gamification loop.
