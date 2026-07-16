@@ -5,6 +5,8 @@ Blink Daemon is a native Windows application built in C++ that acts as a lightwe
 ## Features
 
 - **System Tray Daemon:** Runs entirely in the background via a hidden, message-only window. Access settings by right-clicking the icon in the system tray.
+- **Gamification & Daily Stats 🏆:** Built-in persistence via the Windows Registry tracks how many breaks you successfully complete versus how many you skip each day, directly displayed in your break overlay.
+- **Live Countdown Timers:** Keep track of your progress at a glance with a large countdown timer for the current exercise, plus an overall total remaining blackout timer to track the full 5-minute break.
 - **Un-skippable Breaks:** When a break is triggered, the application creates a topmost, borderless fullscreen window to ensure the 5-minute routine is completed.
 - **Intelligent Power Management:** Listens to Windows Power events to strictly pause the break countdown when your computer is asleep or your screen turns off.
 - **Extreme Emergency Terminate:** If you try to skip your break, you must hunt down a teleporting "Catch Me If You Can" terminate button, click through 5 annoying warnings, and solve a random math challenge just to close the overlay!
