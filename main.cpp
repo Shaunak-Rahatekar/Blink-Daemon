@@ -497,6 +497,9 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             g_stepStartTime = GetTickCount();
             g_blackoutStartTime = GetTickCount();
             
+            // Play a sound to notify the user that a break has started
+            MessageBeep(MB_OK);
+            
             // Create Emergency Terminate button
             int screenWidth = GetSystemMetrics(SM_CXSCREEN);
             int screenHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -551,8 +554,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 g_stepStartTime = GetTickCount();
                 if (g_exerciseStep > 5) {
                     IncrementStat(true);
+                    MessageBeep(MB_ICONASTERISK); // Celebratory / completion sound
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
+                    MessageBeep(MB_OK); // Step change sound
                     InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
                 }
             } else if (wParam == ID_UI_TIMER) {
