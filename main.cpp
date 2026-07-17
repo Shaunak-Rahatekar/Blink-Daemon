@@ -763,8 +763,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                                L"It is recommended to follow the 20-20-20 rule. Every 20 minutes, "
                                L"take a 20-second break and focus your eyes on something at least 20 feet away.\n\n\n"
                                L"SETTINGS\n\n"
-                               L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.\n\n"
-                               L"Press Ctrl+Shift+Q to exit this screen if needed.",
+                               L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.",
                                completedToday, abortedToday);
                                       
             DrawText(hdc, infoText, -1, &rcRightText, DT_LEFT | DT_TOP | DT_WORDBREAK);
