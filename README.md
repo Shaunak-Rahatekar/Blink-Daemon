@@ -5,6 +5,8 @@ Blink Daemon is a native Windows application built in C++ that acts as a lightwe
 ## Features
 
 - **System Tray Daemon:** Runs entirely in the background via a hidden, message-only window. Access settings by right-clicking the icon in the system tray.
+- **Audio Cues 🎵:** Gentle system notification chimes guide you through your exercise steps, and a celebratory sound plays when your break is complete! You can toggle this in the settings.
+- **Persistent Settings:** Your preferences (Work Interval, Daemon Enable/Disable, Audio Cues) are automatically saved to the Windows Registry and reloaded on startup.
 - **Gamification & Daily Stats 🏆:** Built-in persistence via the Windows Registry tracks how many breaks you successfully complete versus how many you skip each day, directly displayed in your break overlay.
 - **Live Countdown Timers:** Keep track of your progress at a glance with a large countdown timer for the current exercise, plus an overall total remaining blackout timer to track the full 5-minute break.
 - **Un-skippable Breaks:** When a break is triggered, the application creates a topmost, borderless fullscreen window to ensure the 5-minute routine is completed.
