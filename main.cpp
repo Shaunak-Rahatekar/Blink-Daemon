@@ -24,6 +24,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 #define ID_SETTINGS_INTERVAL_TXT 2002
 #define ID_SETTINGS_SAVE_BTN 2003
 #define ID_SETTINGS_STARTUP_CHK 2004
+#define ID_SETTINGS_AUDIO_CHK 2005
 
 // Timer IDs
 #define ID_WORK_TIMER 3001
@@ -45,6 +46,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
 int g_workIntervalMinutes = 20;
+bool g_isAudioEnabled = true;
 HWND g_hSettingsWindow = NULL;
 HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
@@ -164,9 +166,43 @@ void SetRunOnStartup(bool enable) {
     }
 }
 
+void LoadSettings() {
+    HKEY hKey;
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD value = 0;
+        DWORD size = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, L"AudioEnabled", NULL, NULL, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+            g_isAudioEnabled = (value != 0);
+        }
+        size = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, L"DaemonEnabled", NULL, NULL, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+            g_isDaemonEnabled = (value != 0);
+        }
+        size = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, L"WorkInterval", NULL, NULL, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+            g_workIntervalMinutes = value;
+        }
+        RegCloseKey(hKey);
+    }
+}
+
+void SaveSettings() {
+    HKEY hKey;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD value = g_isAudioEnabled ? 1 : 0;
+        RegSetValueEx(hKey, L"AudioEnabled", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
+        value = g_isDaemonEnabled ? 1 : 0;
+        RegSetValueEx(hKey, L"DaemonEnabled", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
+        value = g_workIntervalMinutes;
+        RegSetValueEx(hKey, L"WorkInterval", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
+        RegCloseKey(hKey);
+    }
+}
+
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
     srand((unsigned int)time(NULL));
+    LoadSettings();
 
     int result = MessageBox(NULL, L"Do you want to start Blink Daemon?", L"Startup Confirmation", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST);
     if (result == IDNO) {
@@ -269,7 +305,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         L"BlinkDaemonSettingsClass",
         L"Blink Daemon Settings",
         WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 330,
         NULL, NULL, hInstance, NULL
     );
     ShowWindow(g_hSettingsWindow, SW_SHOW);
@@ -323,7 +359,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                             L"BlinkDaemonSettingsClass",
                             L"Blink Daemon Settings",
                             WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
-                            CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
+                            CW_USEDEFAULT, CW_USEDEFAULT, 400, 330,
                             NULL, NULL, GetModuleHandle(NULL), NULL
                         );
                         ShowWindow(g_hSettingsWindow, SW_SHOW);
@@ -418,16 +454,23 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 hwnd, (HMENU)ID_SETTINGS_STARTUP_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             SendMessage(hStartupChk, BM_SETCHECK, GetRunOnStartup() ? BST_CHECKED : BST_UNCHECKED, 0);
 
+            // Audio Cues Checkbox
+            HWND hAudioChk = CreateWindow(L"BUTTON", L"Enable Audio Cues",
+                WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                20, 70, 200, 20,
+                hwnd, (HMENU)ID_SETTINGS_AUDIO_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            SendMessage(hAudioChk, BM_SETCHECK, g_isAudioEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+
             // Interval Label
             CreateWindow(L"STATIC", L"Work Interval (minutes):",
                 WS_VISIBLE | WS_CHILD,
-                20, 75, 150, 20,
+                20, 100, 150, 20,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Interval TextBox
             HWND hTxt = CreateWindow(L"EDIT", L"",
                 WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER,
-                180, 75, 50, 20,
+                180, 100, 50, 20,
                 hwnd, (HMENU)ID_SETTINGS_INTERVAL_TXT, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             
             wchar_t buffer[10];
@@ -437,13 +480,13 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             // Medical Text Block
             CreateWindow(L"STATIC", L"Medical Information:\nExtended periods of screen time can cause digital eye strain. It is recommended to follow the 20-20-20 rule. Every 20 minutes, take a 20-second break and focus your eyes on something at least 20 feet away.",
                 WS_VISIBLE | WS_CHILD,
-                20, 115, 340, 80,
+                20, 140, 340, 80,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Save Button
             CreateWindow(L"BUTTON", L"Save",
                 WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                150, 215, 80, 30,
+                150, 240, 80, 30,
                 hwnd, (HMENU)ID_SETTINGS_SAVE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             return 0;
@@ -453,6 +496,10 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 // Read Checkbox state
                 HWND hChk = GetDlgItem(hwnd, ID_SETTINGS_ENABLE_CHK);
                 g_isDaemonEnabled = (SendMessage(hChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+                // Read Audio Checkbox state
+                HWND hAudioChk = GetDlgItem(hwnd, ID_SETTINGS_AUDIO_CHK);
+                g_isAudioEnabled = (SendMessage(hAudioChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
                 // Read Startup Checkbox state
                 HWND hStartupChk = GetDlgItem(hwnd, ID_SETTINGS_STARTUP_CHK);
@@ -465,6 +512,8 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 GetWindowText(hTxt, buffer, 10);
                 g_workIntervalMinutes = _wtoi(buffer);
                 if (g_workIntervalMinutes <= 0) g_workIntervalMinutes = 1; // Basic validation
+                
+                SaveSettings(); // Persist all settings
 
                 // Apply Timer Settings
                 PauseWorkTimer();
@@ -498,7 +547,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             g_blackoutStartTime = GetTickCount();
             
             // Play a sound to notify the user that a break has started
-            MessageBeep(MB_OK);
+            if (g_isAudioEnabled) MessageBeep(MB_OK);
             
             // Create Emergency Terminate button
             int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -554,10 +603,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 g_stepStartTime = GetTickCount();
                 if (g_exerciseStep > 5) {
                     IncrementStat(true);
-                    MessageBeep(MB_ICONASTERISK); // Celebratory / completion sound
+                    if (g_isAudioEnabled) MessageBeep(MB_ICONASTERISK); // Celebratory / completion sound
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
-                    MessageBeep(MB_OK); // Step change sound
+                    if (g_isAudioEnabled) MessageBeep(MB_OK); // Step change sound
                     InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
                 }
             } else if (wParam == ID_UI_TIMER) {
