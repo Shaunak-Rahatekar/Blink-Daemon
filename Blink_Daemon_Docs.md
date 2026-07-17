@@ -289,7 +289,7 @@ During each tick, we compare the current screen coordinates of the mouse (`GetCu
 
 ## Module 8: Windows Registry and Persistence
 
-To add the Gamification and Daily Stats feature, Blink Daemon needed a way to store data that persists across reboots. Instead of creating arbitrary text files, we utilized the native Windows Registry.
+To add the Gamification feature and to remember the user's preferences (like the work interval and audio cue toggles), Blink Daemon needed a way to store data that persists across reboots. Instead of creating arbitrary text files, we utilized the native Windows Registry.
 
 ### 1. Opening and Creating Keys
 
@@ -303,6 +303,19 @@ RegCreateKeyEx(HKEY_CURRENT_USER, L"Software\\BlinkDaemon", 0, NULL, 0, KEY_READ
 
 ### 2. Reading and Writing Values
 
-Inside our custom `LoadStats` and `IncrementStat` functions, we use `RegQueryValueEx` and `RegSetValueEx` to read and write simple integer (DWORD) values representing the daily date, breaks completed, and breaks skipped.
+Inside our custom `LoadSettings` and `LoadStats` functions, we use `RegQueryValueEx` to retrieve simple integer (`DWORD`) values, and `RegSetValueEx` to save them. We store preferences like `AudioEnabled`, `WorkInterval`, and `DaemonEnabled` so the application behaves exactly as the user left it on their last reboot.
 
-By combining `localtime()` from the standard C library to generate a daily integer format (like `20260716`), the daemon intelligently resets your stats to zero when you cross over into a new day, creating a seamless background gamification loop.
+For the daily stats gamification, we combine `localtime()` from the standard C library to generate a daily integer format (like `20260716`). The daemon intelligently resets your gamification stats to zero when you cross over into a new day!
+
+## Module 9: Audio Cues and System Sounds
+
+Instead of linking bulky third-party audio libraries or writing complex Windows Core Audio (WASAPI) code to play sounds, we can tap directly into the OS's native alert system using `MessageBeep()`.
+
+```cpp
+// Play standard notification sound for step changes
+if (g_isAudioEnabled) MessageBeep(MB_OK); 
+
+// Play success chime when the break is fully completed
+if (g_isAudioEnabled) MessageBeep(MB_ICONASTERISK);
+```
+`MessageBeep` routes through the system's current sound scheme, providing an organic, non-intrusive way to give users audible feedback without complicating our lightweight deployment.
