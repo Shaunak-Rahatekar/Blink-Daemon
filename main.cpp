@@ -8,7 +8,11 @@
 #include <stdlib.h> // For _wtoi
 #include <string.h> // For memcmp
 #include <time.h>   // For rand seed
+#include <math.h>   // For sin/cos
 #include <vector>   // For blur algorithm
+#include <gdiplus.h>
+using namespace Gdiplus;
+#pragma comment(lib, "gdiplus.lib")
 
 // Define the display state GUID manually to fix MinGW/GCC linker errors
 const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0x83, 0x40, 0x0B, 0xA4, 0x20, 0xF9, 0xB2, 0xDB } };
@@ -211,6 +215,10 @@ void SaveSettings() {
 
 // Entry point for Windows GUI applications
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     srand((unsigned int)time(NULL));
     LoadSettings();
 
@@ -333,6 +341,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         DispatchMessage(&msg);
     }
 
+    GdiplusShutdown(gdiplusToken);
     return 0;
 }
 
@@ -791,6 +800,33 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 FillRect(hdc, &rcClient, hBrushBlack);
                 DeleteObject(hBrushBlack);
             }
+            
+            // Draw Translucent Amoeba with GDI+
+            Graphics graphics(hdc);
+            graphics.SetSmoothingMode(SmoothingModeAntiAlias);
+
+            int centerX = rcClient.right / 2;
+            int centerY = rcClient.bottom / 2;
+            int baseRadius = 400;
+            const int numPoints = 8;
+            PointF points[numPoints];
+
+            DWORD tick = GetTickCount();
+
+            for (int i = 0; i < numPoints; i++) {
+                float angle = (float)i * 2.0f * 3.14159f / numPoints;
+                // Add sinusoidal noise for undulating effect
+                float timeOffset = tick * 0.001f;
+                float noise = sin(timeOffset * 2.0f + i) * 40.0f + cos(timeOffset * 1.5f - i * 2.0f) * 30.0f;
+                float currentRadius = baseRadius + noise;
+                
+                points[i].X = centerX + cos(angle) * currentRadius;
+                points[i].Y = centerY + sin(angle) * currentRadius;
+            }
+
+            // Translucent glowing cyan
+            SolidBrush amoebaBrush(Color(60, 0, 255, 255));
+            graphics.FillClosedCurve(&amoebaBrush, points, numPoints);
             
             // Calculate 75% width for the split screen layout (invisible grid)
             int splitX = (rcClient.right - rcClient.left) * 3 / 4;

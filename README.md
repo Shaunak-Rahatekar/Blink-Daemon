@@ -11,6 +11,7 @@ Blink Daemon is a native Windows application built in C++ that acts as a lightwe
 - **Live Countdown Timers:** Keep track of your progress at a glance with a large countdown timer for the current exercise, plus an overall total remaining blackout timer to track the full 5-minute break.
 - **Un-skippable Breaks:** When a break is triggered, the application creates a topmost, borderless fullscreen window to ensure the 5-minute routine is completed.
 - **Intelligent Power Management:** Listens to Windows Power events to strictly pause the break countdown when your computer is asleep or your screen turns off.
+- **Glassmorphism & Vector Animations 🪟:** Beautiful frosted-glass desktop blur and a translucent undulating amoeba animation rendered smoothly via GDI and GDI+.
 - **Extreme Emergency Terminate:** If you try to skip your break, you must hunt down a teleporting "Catch Me If You Can" terminate button, click through 5 annoying warnings, and solve a random math challenge just to close the overlay!
 - **Run on Startup:** Easily configure the app to run as soon as Windows boots via the built-in Registry integration.
 - **Native Win32 API:** Built using pure Win32 API and Windows GDI for maximum performance and an ultra-minimal memory footprint.
@@ -28,7 +29,7 @@ This project is built using native C++ and Windows APIs. It can be compiled usin
    ```
 4. Run the following command to compile and link the code with the resource:
    ```cmd
-   cl.exe /EHsc /W4 /DUNICODE /D_UNICODE main.cpp resource.res User32.lib Shell32.lib Gdi32.lib /link /SUBSYSTEM:WINDOWS /OUT:BlinkDaemon.exe
+   cl.exe /EHsc /W4 /DUNICODE /D_UNICODE main.cpp resource.res User32.lib Shell32.lib Gdi32.lib Gdiplus.lib /link /SUBSYSTEM:WINDOWS /OUT:BlinkDaemon.exe
    ```
 
 ### Using MinGW / GCC
@@ -40,7 +41,7 @@ This project is built using native C++ and Windows APIs. It can be compiled usin
    ```
 4. Run the following command to compile and link the code with the resource:
    ```bash
-   g++ main.cpp resource.res -o BlinkDaemon.exe -mwindows -municode
+   g++ main.cpp resource.res -o BlinkDaemon.exe -mwindows -municode -lgdiplus
    ```
 *(The `-mwindows` flag ensures it builds as a GUI application without opening a black console window.)*
 
