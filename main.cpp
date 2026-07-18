@@ -36,7 +36,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 #define ID_WORK_TIMER 3001
 #define ID_EXERCISE_TIMER 3002
 #define ID_EVASION_TIMER 3003
-#define ID_UI_TIMER 3004
+#define ID_ANIMATION_TIMER 3004
 
 // Overlay Window Control IDs
 #define ID_OVERLAY_TERMINATE_BTN 4001
@@ -664,8 +664,8 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             SetTimer(hwnd, ID_EXERCISE_TIMER, 60 * 1000, NULL);
             // Start evasion timer for the terminate button (50ms)
             SetTimer(hwnd, ID_EVASION_TIMER, 50, NULL);
-            // Start UI update timer for the countdown (1 second)
-            SetTimer(hwnd, ID_UI_TIMER, 1000, NULL);
+            // Start animation timer for smooth 30 FPS rendering (~33ms)
+            SetTimer(hwnd, ID_ANIMATION_TIMER, 33, NULL);
             g_buttonJumps = 0;
             g_stepStartTime = GetTickCount();
             g_blackoutStartTime = GetTickCount();
@@ -736,10 +736,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                     DestroyWindow(hwnd); // Exercise complete
                 } else {
                     if (g_isAudioEnabled) MessageBeep(MB_OK); // Step change sound
-                    InvalidateRect(hwnd, NULL, TRUE); // Force a repaint for the next step
+                    InvalidateRect(hwnd, NULL, FALSE); // Force a repaint for the next step
                 }
-            } else if (wParam == ID_UI_TIMER) {
-                InvalidateRect(hwnd, NULL, TRUE); // Update countdown timer
+            } else if (wParam == ID_ANIMATION_TIMER) {
+                InvalidateRect(hwnd, NULL, FALSE); // Update animation frame at 30 FPS
             } else if (wParam == ID_EVASION_TIMER) {
                 if (g_buttonJumps < 10) {
                     HWND hBtn = GetDlgItem(hwnd, ID_OVERLAY_TERMINATE_BTN);
@@ -775,14 +775,26 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             }
             return 0;
         }
+        case WM_ERASEBKGND: {
+            // Prevent Windows from erasing the background to stop flickering
+            // We handle the background entirely in WM_PAINT via Double Buffering.
+            return 1;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
             
             RECT rcClient;
             GetClientRect(hwnd, &rcClient);
+            int width = rcClient.right - rcClient.left;
+            int height = rcClient.bottom - rcClient.top;
             
-            // Render the blurred background
+            // --- DOUBLE BUFFERING ---
+            HDC hdcMemOffscreen = CreateCompatibleDC(hdc);
+            HBITMAP hbmOffscreen = CreateCompatibleBitmap(hdc, width, height);
+            HBITMAP hOldOffscreen = (HBITMAP)SelectObject(hdcMemOffscreen, hbmOffscreen);
+            
+            // Render the blurred background to the offscreen buffer
             if (g_hBlurredBg) {
                 HDC hdcMem = CreateCompatibleDC(hdc);
                 HBITMAP hOldBm = (HBITMAP)SelectObject(hdcMem, g_hBlurredBg);
@@ -790,19 +802,19 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                 BITMAP bm;
                 GetObject(g_hBlurredBg, sizeof(bm), &bm);
                 
-                SetStretchBltMode(hdc, COLORONCOLOR);
-                StretchBlt(hdc, 0, 0, rcClient.right, rcClient.bottom, hdcMem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+                SetStretchBltMode(hdcMemOffscreen, COLORONCOLOR);
+                StretchBlt(hdcMemOffscreen, 0, 0, width, height, hdcMem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
                 
                 SelectObject(hdcMem, hOldBm);
                 DeleteDC(hdcMem);
             } else {
                 HBRUSH hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
-                FillRect(hdc, &rcClient, hBrushBlack);
+                FillRect(hdcMemOffscreen, &rcClient, hBrushBlack);
                 DeleteObject(hBrushBlack);
             }
             
             // Draw Translucent Amoeba with GDI+
-            Graphics graphics(hdc);
+            Graphics graphics(hdcMemOffscreen);
             graphics.SetSmoothingMode(SmoothingModeAntiAlias);
 
             int centerX = rcClient.right / 2;
@@ -829,7 +841,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             graphics.FillClosedCurve(&amoebaBrush, points, numPoints);
             
             // Calculate 75% width for the split screen layout (invisible grid)
-            int splitX = (rcClient.right - rcClient.left) * 3 / 4;
+            int splitX = width * 3 / 4;
             
             RECT rcLeft = rcClient;
             rcLeft.right = splitX;
@@ -838,8 +850,8 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             rcRight.left = splitX;
             
             // Draw instruction text centered in the left pane
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            SetBkMode(hdcMemOffscreen, TRANSPARENT);
+            SetTextColor(hdcMemOffscreen, RGB(255, 255, 255));
             
             const wchar_t* instruction = L"";
             switch (g_exerciseStep) {
@@ -860,17 +872,17 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
             // Draw the big timer
             HFONT hFontTimer = CreateFont(120, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFontTimer);
+            HFONT hOldFont = (HFONT)SelectObject(hdcMemOffscreen, hFontTimer);
 
             RECT rcTimer = rcLeft;
             rcTimer.bottom = rcLeft.bottom / 2 - 20; // Place it just above the center
-            DrawText(hdc, timerText, -1, &rcTimer, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
+            DrawText(hdcMemOffscreen, timerText, -1, &rcTimer, DT_CENTER | DT_BOTTOM | DT_SINGLELINE);
 
-            SelectObject(hdc, hOldFont);
+            SelectObject(hdcMemOffscreen, hOldFont);
             DeleteObject(hFontTimer);
 
             // Draw the instruction line centered
-            DrawText(hdc, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            DrawText(hdcMemOffscreen, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             
             // Calculate total remaining blackout time (5 steps * 60 seconds = 300 seconds)
             DWORD totalElapsed = GetTickCount() - g_blackoutStartTime;
@@ -885,13 +897,13 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             
             // Draw the total timer below the instruction line
             HFONT hFontTotalTimer = CreateFont(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
-            HFONT hOldFont2 = (HFONT)SelectObject(hdc, hFontTotalTimer);
+            HFONT hOldFont2 = (HFONT)SelectObject(hdcMemOffscreen, hFontTotalTimer);
 
             RECT rcTotalTimer = rcLeft;
             rcTotalTimer.top = rcLeft.bottom / 2 + 40; // Place it below the center
-            DrawText(hdc, totalTimerText, -1, &rcTotalTimer, DT_CENTER | DT_TOP | DT_SINGLELINE);
+            DrawText(hdcMemOffscreen, totalTimerText, -1, &rcTotalTimer, DT_CENTER | DT_TOP | DT_SINGLELINE);
 
-            SelectObject(hdc, hOldFont2);
+            SelectObject(hdcMemOffscreen, hOldFont2);
             DeleteObject(hFontTotalTimer);
 
             // Draw encouraging message
@@ -899,13 +911,13 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             wsprintf(encouragingMsg, L"Only %d min %d sec remaining. It's for your own good!", min, sec);
             
             HFONT hFontEncourage = CreateFont(24, 0, 0, 0, FW_NORMAL, TRUE, FALSE, FALSE, DEFAULT_CHARSET, OUT_OUTLINE_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, VARIABLE_PITCH, L"Arial");
-            HFONT hOldFont3 = (HFONT)SelectObject(hdc, hFontEncourage);
+            HFONT hOldFont3 = (HFONT)SelectObject(hdcMemOffscreen, hFontEncourage);
 
             RECT rcEncourage = rcLeft;
             rcEncourage.top = rcLeft.bottom / 2 + 90; // Place it below the total timer
-            DrawText(hdc, encouragingMsg, -1, &rcEncourage, DT_CENTER | DT_TOP | DT_SINGLELINE);
+            DrawText(hdcMemOffscreen, encouragingMsg, -1, &rcEncourage, DT_CENTER | DT_TOP | DT_SINGLELINE);
 
-            SelectObject(hdc, hOldFont3);
+            SelectObject(hdcMemOffscreen, hOldFont3);
             DeleteObject(hFontEncourage);
             
             // Draw Medical Information and Settings in the right pane
@@ -931,7 +943,15 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
                                L"To change the interval, right-click the Blink Daemon icon in the System Tray (bottom right of your screen) and select 'Settings...'.",
                                completedToday, abortedToday);
                                       
-            DrawText(hdc, infoText, -1, &rcRightText, DT_LEFT | DT_TOP | DT_WORDBREAK);
+            DrawText(hdcMemOffscreen, infoText, -1, &rcRightText, DT_LEFT | DT_TOP | DT_WORDBREAK);
+            
+            // --- FLIP DOUBLE BUFFER TO SCREEN ---
+            BitBlt(hdc, 0, 0, width, height, hdcMemOffscreen, 0, 0, SRCCOPY);
+
+            // Cleanup Double Buffer
+            SelectObject(hdcMemOffscreen, hOldOffscreen);
+            DeleteObject(hbmOffscreen);
+            DeleteDC(hdcMemOffscreen);
             
             EndPaint(hwnd, &ps);
             return 0;
@@ -953,7 +973,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_DESTROY: {
             KillTimer(hwnd, ID_EXERCISE_TIMER);
             KillTimer(hwnd, ID_EVASION_TIMER);
-            KillTimer(hwnd, ID_UI_TIMER);
+            KillTimer(hwnd, ID_ANIMATION_TIMER);
             if (g_hBlurredBg) {
                 DeleteObject(g_hBlurredBg);
                 g_hBlurredBg = NULL;
