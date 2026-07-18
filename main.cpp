@@ -25,6 +25,7 @@ const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0
 #define ID_SETTINGS_SAVE_BTN 2003
 #define ID_SETTINGS_STARTUP_CHK 2004
 #define ID_SETTINGS_AUDIO_CHK 2005
+#define ID_SETTINGS_STRICT_CHK 2006
 
 // Timer IDs
 #define ID_WORK_TIMER 3001
@@ -47,6 +48,7 @@ NOTIFYICONDATA nid = {};
 bool g_isDaemonEnabled = true;
 int g_workIntervalMinutes = 20;
 bool g_isAudioEnabled = true;
+bool g_isStrictMode = false;
 HWND g_hSettingsWindow = NULL;
 HWND g_hMainWindow = NULL;
 HWND g_hOverlayWindow = NULL;
@@ -179,6 +181,10 @@ void LoadSettings() {
             g_isDaemonEnabled = (value != 0);
         }
         size = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, L"StrictMode", NULL, NULL, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
+            g_isStrictMode = (value != 0);
+        }
+        size = sizeof(DWORD);
         if (RegQueryValueEx(hKey, L"WorkInterval", NULL, NULL, (LPBYTE)&value, &size) == ERROR_SUCCESS) {
             g_workIntervalMinutes = value;
         }
@@ -193,6 +199,8 @@ void SaveSettings() {
         RegSetValueEx(hKey, L"AudioEnabled", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
         value = g_isDaemonEnabled ? 1 : 0;
         RegSetValueEx(hKey, L"DaemonEnabled", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
+        value = g_isStrictMode ? 1 : 0;
+        RegSetValueEx(hKey, L"StrictMode", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
         value = g_workIntervalMinutes;
         RegSetValueEx(hKey, L"WorkInterval", 0, REG_DWORD, (const BYTE*)&value, sizeof(DWORD));
         RegCloseKey(hKey);
@@ -305,7 +313,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         L"BlinkDaemonSettingsClass",
         L"Blink Daemon Settings",
         WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 330,
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 360,
         NULL, NULL, hInstance, NULL
     );
     ShowWindow(g_hSettingsWindow, SW_SHOW);
@@ -359,7 +367,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                             L"BlinkDaemonSettingsClass",
                             L"Blink Daemon Settings",
                             WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME & ~WS_MAXIMIZEBOX,
-                            CW_USEDEFAULT, CW_USEDEFAULT, 400, 330,
+                            CW_USEDEFAULT, CW_USEDEFAULT, 400, 360,
                             NULL, NULL, GetModuleHandle(NULL), NULL
                         );
                         ShowWindow(g_hSettingsWindow, SW_SHOW);
@@ -461,16 +469,23 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 hwnd, (HMENU)ID_SETTINGS_AUDIO_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             SendMessage(hAudioChk, BM_SETCHECK, g_isAudioEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 
+            // Strict Mode Checkbox
+            HWND hStrictChk = CreateWindow(L"BUTTON", L"Strict Mode (No Escape!)",
+                WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                20, 95, 200, 20,
+                hwnd, (HMENU)ID_SETTINGS_STRICT_CHK, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            SendMessage(hStrictChk, BM_SETCHECK, g_isStrictMode ? BST_CHECKED : BST_UNCHECKED, 0);
+
             // Interval Label
             CreateWindow(L"STATIC", L"Work Interval (minutes):",
                 WS_VISIBLE | WS_CHILD,
-                20, 100, 150, 20,
+                20, 125, 150, 20,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Interval TextBox
             HWND hTxt = CreateWindow(L"EDIT", L"",
                 WS_VISIBLE | WS_CHILD | WS_BORDER | ES_NUMBER,
-                180, 100, 50, 20,
+                180, 125, 50, 20,
                 hwnd, (HMENU)ID_SETTINGS_INTERVAL_TXT, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
             
             wchar_t buffer[10];
@@ -480,13 +495,13 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             // Medical Text Block
             CreateWindow(L"STATIC", L"Medical Information:\nExtended periods of screen time can cause digital eye strain. It is recommended to follow the 20-20-20 rule. Every 20 minutes, take a 20-second break and focus your eyes on something at least 20 feet away.",
                 WS_VISIBLE | WS_CHILD,
-                20, 140, 340, 80,
+                20, 165, 340, 80,
                 hwnd, NULL, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             // Save Button
             CreateWindow(L"BUTTON", L"Save",
                 WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                150, 240, 80, 30,
+                150, 265, 80, 30,
                 hwnd, (HMENU)ID_SETTINGS_SAVE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
 
             return 0;
@@ -500,6 +515,10 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
                 // Read Audio Checkbox state
                 HWND hAudioChk = GetDlgItem(hwnd, ID_SETTINGS_AUDIO_CHK);
                 g_isAudioEnabled = (SendMessage(hAudioChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+                // Read Strict Mode Checkbox state
+                HWND hStrictChk = GetDlgItem(hwnd, ID_SETTINGS_STRICT_CHK);
+                g_isStrictMode = (SendMessage(hStrictChk, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
                 // Read Startup Checkbox state
                 HWND hStartupChk = GetDlgItem(hwnd, ID_SETTINGS_STARTUP_CHK);
@@ -549,15 +568,17 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             // Play a sound to notify the user that a break has started
             if (g_isAudioEnabled) MessageBeep(MB_OK);
             
-            // Create Emergency Terminate button
-            int screenWidth = GetSystemMetrics(SM_CXSCREEN);
-            int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-            int splitX = screenWidth * 3 / 4;
-            
-            CreateWindow(L"BUTTON", L"Emergency Terminate",
-                WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-                splitX + 30, screenHeight - 80, 200, 40,
-                hwnd, (HMENU)ID_OVERLAY_TERMINATE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            // Create Emergency Terminate button (if not in Strict Mode)
+            if (!g_isStrictMode) {
+                int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+                int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+                int splitX = screenWidth * 3 / 4;
+                
+                CreateWindow(L"BUTTON", L"Emergency Terminate",
+                    WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+                    splitX + 30, screenHeight - 80, 200, 40,
+                    hwnd, (HMENU)ID_OVERLAY_TERMINATE_BTN, (HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE), NULL);
+            }
                 
             return 0;
         }
@@ -773,7 +794,8 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         }
         case WM_KEYDOWN: {
             // Secret override to destroy the window during testing (Ctrl+Shift+Q)
-            if (wParam == 'Q' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+            // Blocked if in Strict Mode
+            if (!g_isStrictMode && wParam == 'Q' && (GetKeyState(VK_CONTROL) & 0x8000) && (GetKeyState(VK_SHIFT) & 0x8000)) {
                 IncrementStat(false);
                 DestroyWindow(hwnd);
             }
