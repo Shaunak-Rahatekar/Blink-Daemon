@@ -817,8 +817,9 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             Graphics graphics(hdcMemOffscreen);
             graphics.SetSmoothingMode(SmoothingModeAntiAlias);
 
-            int centerX = rcClient.right / 2;
-            int centerY = rcClient.bottom / 2;
+            // Center the amoeba in the left pane (75% of the screen width, so its center is 3/8ths)
+            int centerX = width * 3 / 8;
+            int centerY = height / 2;
             int baseRadius = 400;
             const int numPoints = 8;
             PointF points[numPoints];
