@@ -8,6 +8,7 @@
 #include <stdlib.h> // For _wtoi
 #include <string.h> // For memcmp
 #include <time.h>   // For rand seed
+#include <vector>   // For blur algorithm
 
 // Define the display state GUID manually to fix MinGW/GCC linker errors
 const GUID CUSTOM_GUID_CONSOLE_DISPLAY_STATE = { 0x271A8220, 0xA2BD, 0x4F9D, { 0x83, 0x40, 0x0B, 0xA4, 0x20, 0xF9, 0xB2, 0xDB } };
@@ -56,6 +57,7 @@ int g_exerciseStep = 1;
 int g_buttonJumps = 0;
 DWORD g_stepStartTime = 0;
 DWORD g_blackoutStartTime = 0;
+HBITMAP g_hBlurredBg = NULL;
 
 // Power State Management
 DWORD g_timerStartTime = 0;
@@ -552,6 +554,100 @@ LRESULT CALLBACK SettingsWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+void FastBoxBlur(DWORD* pixels, int width, int height, int radius) {
+    if (radius < 1) return;
+
+    std::vector<DWORD> temp(width * height);
+
+    // Horizontal pass
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            int r = 0, g = 0, b = 0;
+            int count = 0;
+
+            for (int k = -radius; k <= radius; ++k) {
+                int nx = x + k;
+                if (nx >= 0 && nx < width) {
+                    DWORD p = pixels[y * width + nx];
+                    r += (p >> 16) & 0xFF;
+                    g += (p >> 8) & 0xFF;
+                    b += p & 0xFF;
+                    count++;
+                }
+            }
+
+            temp[y * width + x] = ((r / count) << 16) | ((g / count) << 8) | (b / count);
+        }
+    }
+
+    // Vertical pass and darkening
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            int r = 0, g = 0, b = 0;
+            int count = 0;
+
+            for (int k = -radius; k <= radius; ++k) {
+                int ny = y + k;
+                if (ny >= 0 && ny < height) {
+                    DWORD p = temp[ny * width + x];
+                    r += (p >> 16) & 0xFF;
+                    g += (p >> 8) & 0xFF;
+                    b += p & 0xFF;
+                    count++;
+                }
+            }
+            
+            // Darken by 60% for contrast with white text
+            r = (int)((r / count) * 0.4f);
+            g = (int)((g / count) * 0.4f);
+            b = (int)((b / count) * 0.4f);
+
+            pixels[y * width + x] = (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
+HBITMAP CaptureAndBlurScreen() {
+    int w = GetSystemMetrics(SM_CXSCREEN);
+    int h = GetSystemMetrics(SM_CYSCREEN);
+    
+    // Scale down for faster blur and inherent softening
+    int scale = 4;
+    int sw = w / scale;
+    int sh = h / scale;
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMemSrc = CreateCompatibleDC(hdcScreen);
+    HDC hdcMemDst = CreateCompatibleDC(hdcScreen);
+
+    // Create a DIB section so we can manipulate the pixels directly
+    BITMAPINFO bmi = {0};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = sw;
+    bmi.bmiHeader.biHeight = -sh; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pPixels;
+    HBITMAP hbmDst = CreateDIBSection(hdcScreen, &bmi, DIB_RGB_COLORS, &pPixels, NULL, 0);
+    HBITMAP hOldDst = (HBITMAP)SelectObject(hdcMemDst, hbmDst);
+
+    // Capture and downscale the screen
+    SetStretchBltMode(hdcMemDst, HALFTONE);
+    StretchBlt(hdcMemDst, 0, 0, sw, sh, hdcScreen, 0, 0, w, h, SRCCOPY);
+
+    // Blur and darken
+    FastBoxBlur((DWORD*)pPixels, sw, sh, 6); // Radius 6 on a 1/4 image = ~24px effective radius
+
+    SelectObject(hdcMemDst, hOldDst);
+    DeleteDC(hdcMemDst);
+    DeleteDC(hdcMemSrc);
+    ReleaseDC(NULL, hdcScreen);
+    
+    return hbmDst;
+}
+
 LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_CREATE: {
@@ -564,6 +660,9 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             g_buttonJumps = 0;
             g_stepStartTime = GetTickCount();
             g_blackoutStartTime = GetTickCount();
+            
+            // Capture and blur screen for glassmorphism effect
+            g_hBlurredBg = CaptureAndBlurScreen();
             
             // Play a sound to notify the user that a break has started
             if (g_isAudioEnabled) MessageBeep(MB_OK);
@@ -674,7 +773,26 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             RECT rcClient;
             GetClientRect(hwnd, &rcClient);
             
-            // Calculate 75% width for the split screen
+            // Render the blurred background
+            if (g_hBlurredBg) {
+                HDC hdcMem = CreateCompatibleDC(hdc);
+                HBITMAP hOldBm = (HBITMAP)SelectObject(hdcMem, g_hBlurredBg);
+                
+                BITMAP bm;
+                GetObject(g_hBlurredBg, sizeof(bm), &bm);
+                
+                SetStretchBltMode(hdc, COLORONCOLOR);
+                StretchBlt(hdc, 0, 0, rcClient.right, rcClient.bottom, hdcMem, 0, 0, bm.bmWidth, bm.bmHeight, SRCCOPY);
+                
+                SelectObject(hdcMem, hOldBm);
+                DeleteDC(hdcMem);
+            } else {
+                HBRUSH hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
+                FillRect(hdc, &rcClient, hBrushBlack);
+                DeleteObject(hBrushBlack);
+            }
+            
+            // Calculate 75% width for the split screen layout (invisible grid)
             int splitX = (rcClient.right - rcClient.left) * 3 / 4;
             
             RECT rcLeft = rcClient;
@@ -683,17 +801,7 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             RECT rcRight = rcClient;
             rcRight.left = splitX;
             
-            // Fill Left Side (75%) with Black
-            HBRUSH hBrushBlack = CreateSolidBrush(RGB(0, 0, 0));
-            FillRect(hdc, &rcLeft, hBrushBlack);
-            DeleteObject(hBrushBlack);
-            
-            // Fill Right Side (25%) with Dark Gray
-            HBRUSH hBrushGray = CreateSolidBrush(RGB(40, 40, 40));
-            FillRect(hdc, &rcRight, hBrushGray);
-            DeleteObject(hBrushGray);
-            
-            // Draw instruction text centered in the black pane
+            // Draw instruction text centered in the left pane
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, RGB(255, 255, 255));
             
@@ -810,6 +918,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             KillTimer(hwnd, ID_EXERCISE_TIMER);
             KillTimer(hwnd, ID_EVASION_TIMER);
             KillTimer(hwnd, ID_UI_TIMER);
+            if (g_hBlurredBg) {
+                DeleteObject(g_hBlurredBg);
+                g_hBlurredBg = NULL;
+            }
             g_hOverlayWindow = NULL;
             return 0;
         }
