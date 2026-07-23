@@ -885,10 +885,10 @@ LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             // Draw the instruction line centered
             DrawText(hdcMemOffscreen, instruction, -1, &rcLeft, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             
-            // Calculate total remaining blackout time (5 steps * 60 seconds = 300 seconds)
-            DWORD totalElapsed = GetTickCount() - g_blackoutStartTime;
-            int totalRemaining = 300 - (totalElapsed / 1000);
-            if (totalRemaining < 0) totalRemaining = 0;
+            // Calculate total remaining blackout time (synchronized with step timer)
+            int remainingSteps = 5 - g_exerciseStep;
+            if (remainingSteps < 0) remainingSteps = 0;
+            int totalRemaining = remaining + (remainingSteps * 60);
 
             int min = totalRemaining / 60;
             int sec = totalRemaining % 60;
